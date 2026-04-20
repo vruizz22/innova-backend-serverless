@@ -1,0 +1,44 @@
+service: innova-backend-serverless
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  # Environment Variables that get synced from GitHub Actions / CI
+  environment:
+    NODE_ENV: ${self:provider.stage}
+    MONGODB_URI: ${env:MONGODB_URI, ''}
+
+functions:
+  api:
+    handler: dist/src/lambda.handler
+    events:
+      - http:
+          method: ANY
+          path: /
+      - http:
+          method: ANY
+          path: '{proxy+}'
+
+  telemetryWorker:
+    handler: dist/src/sqs-worker.handler
+    events:
+      - sqs:
+          arn:
+            Fn::GetAtt:
+              - TelemetryQueue
+              - Arn
+          batchSize: 10
+
+resources:
+  Resources:
+    TelemetryQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-telemetry-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 60
+
+plugins:
+  - serverless-offline
