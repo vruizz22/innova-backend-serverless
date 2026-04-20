@@ -1,0 +1,41 @@
+Project Innova_Telemetry_Firehose {
+  database_type: 'MongoDB'
+  Note: '''
+    Unstructured/semi-structured game telemetry.
+    Heavy write workload (Firehose).
+  '''
+}
+
+Table RawTelemetry {
+  _id ObjectId [pk]
+  student_uuid String [note: 'Dissociated identity, avoids PII']
+  gameId String [note: 'Identifier for the minigame']
+  sessionId String [note: 'Unique game session']
+  timestamp DateTime [default: `now()`]
+  events EventArray [note: 'Embedded Sub-document']
+  metadata Metadata [note: 'Embedded Sub-document']
+}
+
+Table EventArray {
+  eventType String [note: 'e.g., CLICK, DRAG_DROP, IDLE, COMPLETE_LEVEL']
+  x Float [note: 'Screen X coordinate']
+  y Float [note: 'Screen Y coordinate']
+  durationMs Int [note: 'Time spent in the event']
+  timestamp DateTime
+  note: '''
+    Embedded Sub-document mapped in Mongoose as an Array of Sub-schemas.
+    Not a relational join.
+  '''
+}
+
+Table Metadata {
+  deviceType String [note: 'e.g., DESKTOP, TABLET, MOBILE']
+  clientVersion String
+  fps Float [note: 'Average frames per second to track lag']
+  note: '''
+    Embedded Sub-document for dynamic client data.
+  '''
+}
+
+Ref: RawTelemetry.events < EventArray.eventType
+Ref: RawTelemetry.metadata - Metadata.deviceType
