@@ -8,8 +8,8 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
-import { TelemetryService } from '../../../application/telemetry/telemetry.service';
-import { ParseRawTelemetryDto } from '../../../application/telemetry/dto/raw-telemetry.dto';
+import { TelemetryService } from '@/application/telemetry/telemetry.service';
+import { ParseRawTelemetryDto } from '@/application/telemetry/dto/raw-telemetry.dto';
 
 @ApiTags('Telemetry Ingestion pipeline')
 @Controller('telemetry')
