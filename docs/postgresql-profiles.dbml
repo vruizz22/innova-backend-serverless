@@ -1,0 +1,5 @@
+Project innova-backend-serverless {
+  database_type: 'PostgreSQL'
+  Note: 'Data model for innova-backend-serverless'
+}
+
