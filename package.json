@@ -1,10 +1,10 @@
 {
   "name": "innova-backend-serverless",
   "version": "0.0.1",
-  "description": "",
-  "author": "",
+  "description": "Serverless backend for Innova EdTech platform. Built with NestJS, TypeScript, and AWS (Lambda, API Gateway, SQS FIFO). Handles telemetry batch ingestion and FSLSM profile management.",
+  "author": "Team 23",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "GPL-3.0 license",
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
