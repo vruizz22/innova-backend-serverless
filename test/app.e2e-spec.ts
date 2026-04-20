@@ -1,25 +1,53 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
+jest.mock('mongoose', () => {
+  return {
+    connect: jest.fn().mockResolvedValue({}),
+    Schema: jest.fn(() => {}),
+    model: jest.fn(() => ({
+      insertMany: jest.fn(),
+    })),
+    connection: {
+      on: jest.fn(),
+      close: jest.fn().mockResolvedValue(true),
+      readyState: 1,
+      models: {},
+    },
+  };
+});
 
-  beforeEach(async () => {
+describe('AppController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider('DatabaseConnection')
+      .useValue({
+        models: {},
+        model: jest.fn().mockReturnValue({}),
+        close: jest.fn().mockResolvedValue(true),
+      })
+      .compile();
 
     app = moduleFixture.createNestApplication();
     await app.init();
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
   });
 
   it('/ (GET)', () => {
     return request(app.getHttpServer())
       .get('/')
       .expect(200)
-      .expect('Hello World!');
+      .expect('Innova Backend Serverless is running!');
   });
 });
