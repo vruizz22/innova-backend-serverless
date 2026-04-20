@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from './infrastructure/database/database.module';
+import { TelemetryModule } from './infrastructure/telemetry.module';
+import { ProfilesModule } from './profiles/profiles.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DatabaseModule } from './database/database.module';
-import { TelemetryModule } from './telemetry/telemetry.module';
-import { ProfilesModule } from './profiles/profiles.module';
 
 @Module({
   imports: [DatabaseModule, TelemetryModule, ProfilesModule],
