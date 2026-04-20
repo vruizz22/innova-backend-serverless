@@ -11,7 +11,8 @@ The **Innova Backend Serverless** is the core backend repository for the Innova 
 - [Innova Backend Serverless](#innova-backend-serverless)
   - [Introduction](#introduction)
   - [📑 Index](#-index)
-  - [Architecture \& Workflow](#architecture--workflow)
+  - [Architecture, Folder Structure \& Workflow](#architecture-folder-structure--workflow)
+    - [Directory Structure (Clean Architecture)](#directory-structure-clean-architecture)
     - [Integration Workflow: NNA to Teacher](#integration-workflow-nna-to-teacher)
     - [Mermaid Flowchart](#mermaid-flowchart)
   - [Polyglot Persistence Scheme](#polyglot-persistence-scheme)
@@ -83,20 +84,21 @@ We strictly follow a Polyglot Persistence methodology represented locally in our
 
 ## Environment Configuration
 
-Create a `.env` file referencing `.env.example`. Make sure you inject absolute MongoDB cluster URLs:
+Create a `.env` file referencing `.env.example`. By default, development runs 100% offline using local Docker containers:
 
 ```env
-# Local Development (Docker Compose)
+# Local Development (Docker Compose - Offline)
 DATABASE_URL="postgresql://postgres:innova_secret@localhost:5432/innova_dev_db?schema=public"
+MONGODB_URI="mongodb://root:innova_mongo_secret@localhost:27017/innova_telemetry_local?authSource=admin"
 
-# Production / Cloud Database (Neon)
-# DATABASE_URL="postgresql://neon_user:neon_password@ep-neon-endpoint.region.aws.neon.tech/neon_db?sslmode=require"
+# Production Cloud (Neon & Atlas)
+# DATABASE_URL="postgresql://<user>:<password>@ep-icy-band-an7ap4i1.c-6.us-east-1.aws.neon.tech/neondb?sslmode=require"
+# MONGODB_URI="mongodb+srv://<user>:<password>@innovacluster.9xhvcvu.mongodb.net/innova_telemetry_prod?appName=InnovaCluster"
 
-MONGODB_URI="mongodb+srv://innova_backend:auto_generated_password@cluster0.mongodb.net/innova_telemetry_dev?retryWrites=true&w=majority"
-COGNITO_USER_POOL_ID=
-COGNITO_CLIENT_ID=
+# Cognito Config
+COGNITO_USER_POOL_ID="<your_user_pool_id>"
+COGNITO_CLIENT_ID="<your_client_id>"
 COGNITO_REGION="us-east-1"
-
 ```
 
 ---
