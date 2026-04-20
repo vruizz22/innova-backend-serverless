@@ -1,17 +1,25 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TelemetryService } from './telemetry.service';
 import { getModelToken } from '@nestjs/mongoose';
-import { RawTelemetry } from '../../infrastructure/database/schemas/raw-telemetry.schema';
+import { Model } from 'mongoose';
+import {
+  RawTelemetry,
+  RawTelemetryDocument,
+} from '@/infrastructure/database/schemas/raw-telemetry.schema';
 import { ParseRawTelemetryDto } from './dto/raw-telemetry.dto';
 
 describe('TelemetryService', () => {
   let service: TelemetryService;
-  let mockModel: any;
+  let mockModel: jest.Mocked<Partial<Model<RawTelemetryDocument>>> & {
+    insertMany: jest.Mock;
+  };
 
   beforeEach(async () => {
-    mockModel = {
-      insertMany: jest.fn().mockResolvedValue([]),
-    };
+    const mockSave = jest.fn();
+    mockModel = Object.assign(
+      jest.fn().mockImplementation(() => ({ save: mockSave })),
+      { insertMany: jest.fn().mockResolvedValue([]) },
+    ) as any;
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -45,7 +53,7 @@ describe('TelemetryService', () => {
     });
 
     it('should explicitly fail and throw error if insertMany fails', async () => {
-      mockModel.insertMany.mockRejectedValue(new Error('Mongo Error'));
+      mockModel.insertMany.mockRejectedValueOnce(new Error('Mongo Error'));
       const mockPayloads = [{} as ParseRawTelemetryDto];
 
       await expect(service.batchProcessTelemetry(mockPayloads)).rejects.toThrow(
