@@ -1,13 +1,32 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.0.x"]
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id        String         @id @default(uuid())
+  email     String         @unique
+  profile   FslsmProfile?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+}
+
+model FslsmProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  active         Int      @default(0) // Active-Reflective (-11 to +11)
+  sensing        Int      @default(0) // Sensing-Intuitive (-11 to +11)  
+  visual         Int      @default(0) // Visual-Verbal (-11 to +11)
+  sequential     Int      @default(0) // Sequential-Global (-11 to +11)
+  lastCalculated DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
