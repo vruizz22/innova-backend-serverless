@@ -4,8 +4,8 @@ import { Model } from 'mongoose';
 import {
   RawTelemetry,
   RawTelemetryDocument,
-} from '../../infrastructure/database/schemas/raw-telemetry.schema';
-import { ParseRawTelemetryDto } from './dto/raw-telemetry.dto';
+} from '@/infrastructure/database/schemas/raw-telemetry.schema';
+import { ParseRawTelemetryDto } from '@/application/telemetry/dto/raw-telemetry.dto';
 
 @Injectable()
 export class TelemetryService {
