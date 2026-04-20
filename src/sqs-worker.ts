@@ -1,11 +1,12 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
-import { TelemetryWorker } from './application/telemetry/telemetry.worker';
-import { SQSEvent, Context } from 'aws-lambda';
+import { AppModule } from '@/app.module';
+import { TelemetryWorker } from '@/application/telemetry/telemetry.worker';
+import { SQSEvent } from 'aws-lambda';
+import { INestApplicationContext } from '@nestjs/common';
 
-let appContext;
+let appContext: INestApplicationContext;
 
-export const handler = async (event: SQSEvent, context: Context) => {
+export const handler = async (event: SQSEvent): Promise<void> => {
   if (!appContext) {
     appContext = await NestFactory.createApplicationContext(AppModule);
   }
