@@ -15,8 +15,8 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Hello World!"', () => {
-      expect(appController.getHello()).toBe('Hello World!');
+    it('should return "Innova Backend Serverless is running!"', () => {
+      expect(appController.getHello()).toBe('Innova Backend Serverless is running!');
     });
   });
 });
