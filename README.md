@@ -23,9 +23,25 @@ The **Innova Backend Serverless** is the core backend repository for the Innova 
 
 ---
 
-## Architecture & Workflow
+## Architecture, Folder Structure & Workflow
 
 The architecture resolves high-throughput constraints strictly by delegating operations through Event-Driven approaches via SQS FIFO and isolating storage concerns with CQRS strategies.
+
+### Directory Structure (Clean Architecture)
+
+```text
+src/
+├── application/         # Application services, DTOs, and event workers (e.g., SQS TelemetryWorker).
+│   └── telemetry/       # Telemetry bounded context for ingestion logic.
+├── domain/              # Core business logic, pure entities, and repository interfaces.
+├── infrastructure/      # Concrete technical details: Frameworks, DB connections, and Web entrypoints.
+│   ├── database/        # Mongoose/Prisma modules and schema implementations.
+│   └── http/            # REST API Controllers (e.g., TelemetryController).
+├── profiles/            # Bounded context for User/FSLSM Profiles management (Currently skeleton/empty, ready for future iterations).
+└── shared/              # Shared utilities, common interceptors, and strict typings.
+test/                    # E2E testing (Jest + Supertest overrides).
+docs/                    # DBML models and diagrams.
+```
 
 ### Integration Workflow: NNA to Teacher
 
