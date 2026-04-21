@@ -27,4 +27,4 @@ export const handler: Handler = async (
   const result = await cachedServer(event as any, context, callback);
   return result as unknown;
   // eslint-disable-next-line prettier/prettier
-};;
+};
