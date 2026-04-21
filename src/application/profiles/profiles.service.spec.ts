@@ -6,7 +6,6 @@ import { ResourceNotFoundException } from '@/shared/exceptions/domain.exception'
 
 describe('ProfilesService', () => {
   let service: ProfilesService;
-  let repo: IProfileRepository;
 
   const mockProfile = new FslsmProfile('id-1', 'user-1', 1, 1, 1, 1);
 
@@ -28,7 +27,6 @@ describe('ProfilesService', () => {
     }).compile();
 
     service = module.get<ProfilesService>(ProfilesService);
-    repo = module.get<IProfileRepository>(IProfileRepository);
   });
 
   afterEach(() => {
@@ -41,7 +39,7 @@ describe('ProfilesService', () => {
 
       const result = await service.getProfileByUserId('user-1');
       expect(result).toEqual(mockProfile);
-      expect(repo.findByUserId).toHaveBeenCalledWith('user-1');
+      expect(mockRepo.findByUserId).toHaveBeenCalledWith('user-1');
     });
 
     it('should throw ResourceNotFoundException if profile does not exist', async () => {
@@ -68,7 +66,7 @@ describe('ProfilesService', () => {
       };
       const result = await service.createOrUpdateProfile(dto);
 
-      expect(repo.updateProfile).toHaveBeenCalledWith('user-1', {
+      expect(mockRepo.updateProfile).toHaveBeenCalledWith('user-1', {
         active: 3,
         sensing: 3,
         visual: 3,
@@ -91,7 +89,7 @@ describe('ProfilesService', () => {
       };
       const result = await service.createOrUpdateProfile(dto);
 
-      expect(repo.createProfile).toHaveBeenCalled();
+      expect(mockRepo.createProfile).toHaveBeenCalled();
       expect(result).toEqual(newProfile);
     });
   });
