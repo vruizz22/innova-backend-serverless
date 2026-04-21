@@ -5,7 +5,6 @@ import { FslsmProfile } from '@/domain/profiles/fslsm-profile.entity';
 
 describe('ProfilesController', () => {
   let controller: ProfilesController;
-  let service: ProfilesService;
 
   const mockService = {
     createOrUpdateProfile: jest.fn(),
@@ -26,7 +25,6 @@ describe('ProfilesController', () => {
     }).compile();
 
     controller = module.get<ProfilesController>(ProfilesController);
-    service = module.get<ProfilesService>(ProfilesService);
   });
 
   afterEach(() => {
@@ -39,7 +37,7 @@ describe('ProfilesController', () => {
     const result = await controller.getProfile('user-1');
 
     expect(result.data).toEqual(mockProfile);
-    expect(service.getProfileByUserId).toHaveBeenCalledWith('user-1');
+    expect(mockService.getProfileByUserId).toHaveBeenCalledWith('user-1');
   });
 
   it('should create or update profile', async () => {
@@ -55,6 +53,6 @@ describe('ProfilesController', () => {
     const result = await controller.createOrUpdateProfile(dto);
 
     expect(result.data).toEqual(mockProfile);
-    expect(service.createOrUpdateProfile).toHaveBeenCalledWith(dto);
+    expect(mockService.createOrUpdateProfile).toHaveBeenCalledWith(dto);
   });
 });
