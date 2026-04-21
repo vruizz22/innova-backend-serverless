@@ -7,7 +7,9 @@ import { FslsmProfile } from '@/domain/profiles/fslsm-profile.entity';
 export class PrismaProfileRepository implements IProfileRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  private mapToDomain(record: any): FslsmProfile {
+  private mapToDomain(
+    record: import('@prisma/client').FslsmProfile,
+  ): FslsmProfile {
     return new FslsmProfile(
       record.id,
       record.userId,
