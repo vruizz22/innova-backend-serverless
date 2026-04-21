@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: innova_secret
       POSTGRES_DB: innova_dev_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
