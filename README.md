@@ -11,146 +11,127 @@ The **Innova Backend Serverless** is the core backend repository for the Innova 
 - [Innova Backend Serverless](#innova-backend-serverless)
   - [Introduction](#introduction)
   - [📑 Index](#-index)
-  - [Architecture \& Workflow](#architecture--workflow)
-    - [Integration Workflow: NNA to Teacher](#integration-workflow-nna-to-teacher)
-    - [Mermaid Flowchart](#mermaid-flowchart)
-  - [Polyglot Persistence Scheme](#polyglot-persistence-scheme)
-  - [Environment Configuration](#environment-configuration)
-  - [Deployment (CI/CD)](#deployment-cicd)
-  - [Local Development](#local-development)
-  - [Commands](#commands)
+  - [Architecture \& Data Flow](#architecture--data-flow)
+  - [Project Context \& Domain](#project-context--domain)
+    - [Core Features](#core-features)
+  - [Technologies \& Packages](#technologies--packages)
+  - [Project Structure Analysis](#project-structure-analysis)
+    - [Purpose of Empty Folders](#purpose-of-empty-folders)
+  - [Local Setup \& Development](#local-setup--development)
+  - [AWS Serverless Deployment](#aws-serverless-deployment)
   - [License](#license)
 
 ---
 
-## Architecture, Folder Structure & Workflow
-
-The architecture resolves high-throughput constraints strictly by delegating operations through Event-Driven approaches via SQS FIFO and isolating storage concerns with CQRS strategies.
-
-### Directory Structure (Clean Architecture)
-
-```text
-src/
-├── application/         # Application services, DTOs, and event workers (e.g., SQS TelemetryWorker).
-│   └── telemetry/       # Telemetry bounded context for ingestion logic.
-├── domain/              # Core business logic, pure entities, and repository interfaces.
-├── infrastructure/      # Concrete technical details: Frameworks, DB connections, and Web entrypoints.
-│   ├── database/        # Mongoose/Prisma modules and schema implementations.
-│   └── http/            # REST API Controllers (e.g., TelemetryController).
-├── profiles/            # Bounded context for User/FSLSM Profiles management (Currently skeleton/empty, ready for future iterations).
-└── shared/              # Shared utilities, common interceptors, and strict typings.
-test/                    # E2E testing (Jest + Supertest overrides).
-docs/                    # DBML models and diagrams.
-```
-
-### Integration Workflow: NNA to Teacher
-
-1. **Ingestion & Validation**: Gameplay actions from NNA (children & adolescents) are received at the AWS API Gateway endpoint (`/telemetry/ingest`).
-2. **Buffering**: Validated data constructs are published to an `.fifo` SQS queue asynchronously.
-3. **Processing (The Worker)**: `TelemetryWorker` consumes batches matching exactly `< 10` messages concurrently.
-4. **Storage Offloading**: The payload writes to a high-speed NoSQL database (MongoDB Atlas) to prevent lock-contention.
-5. **AI Inference Link**: Background processes later read the unstructured collections, interpret cognitive profile logic, and aggregate insights onto a relational core (PostgreSQL) where Teachers access standard FSLSM statistics.
-
-### Mermaid Flowchart
+## Architecture & Data Flow
 
 ```mermaid
 flowchart TD
-    A[Minigame Client] -->|RawTelemetry JSON| B(API Gateway)
-    B -->|Fast Response 202| A
-    B -. Async Context .-> C[AWS SQS FIFO TelemetryQueue]
-    C -->|Trigger Batch| D[AWS Lambda: Telemetry Worker]
-    D -->|"insertMany()"| E[("MongoDB: Raw Telemetry Firehose")]
-    D --> F{Validation}
-    F -->|Fail| G[Dead Letter Queue]
-    
-    H[Teacher Dashboard] -->|FSLSM Search| I(API Gateway REST)
-    I -->|Fetch Profiles| J[("PostgreSQL: Neon Profiles")]
-    
-    style E fill:#d4ffb8,stroke:#4caf50
-    style J fill:#b8d4ff,stroke:#2196f3
+    subgraph Data_Sources ["Telemetry Sources"]
+        Client[Frontend/Minigame]
+    end
+
+    subgraph API_Layer ["API Gateway / NestJS Controllers"]
+        TelemetryCtrl[TelemetryController]
+        ProfilesCtrl[ProfilesController]
+        MaterialCtrl[MaterialsController]
+    end
+
+    subgraph Service_Processing ["Domain & Services"]
+        IngestionSvc[Telemetry Ingestion]
+        ProfileCalcSvc[FSLSM Engine]
+        RecommSvc[Recommendation AI Engine]
+    end
+
+    subgraph Databases ["Polyglot Persistence"]
+        DB_Mongo[(Mongoose / MongoDB)\nRaw Telemetry]
+        DB_Postgres[(Prisma / PostgreSQL)\nProfiles & Material]
+    end
+
+    Client -->|1. Firehose Telemetry (NoSQL)| TelemetryCtrl
+    TelemetryCtrl --> IngestionSvc
+    IngestionSvc -->|Save| DB_Mongo
+    IngestionSvc -->|SQS Queue| ProfileCalcSvc
+    ProfileCalcSvc -->|Calculate & Store| DB_Postgres
+
+    Client -->|2. Request Next Lesson| MaterialCtrl
+    MaterialCtrl --> RecommSvc
+    RecommSvc -->|Fetch FSLSM & Materials| DB_Postgres
+    RecommSvc -->|Adaptive Filtering| MaterialCtrl
+    MaterialCtrl -->|3. Return Adapted Content| Client
 ```
 
 ---
 
-## Polyglot Persistence Scheme
+## Project Context & Domain
 
-We strictly follow a Polyglot Persistence methodology represented locally in our `docs/` folder DBML structures:
+Domain: EdTech platform using Dual AI to infer cognitive profiles (FSLSM) continuously from student telemetry (NoSQL) and orchestrate Adaptive Learning Systems to customize educational material delivery (SQL).
 
-1. **[PostgreSQL Profiles ERD (DBML)](docs/postgresql-profiles.dbml)** - Handled via **Prisma ORM** for structured, consistent `Users` & `FslsmProfiles`. Provides ACID compliance for the learning administration.
-2. **[MongoDB Telemetry Schema (DBML)](docs/mongodb-telemetry.dbml)** - Handled via **Mongoose** for raw game metrics (Heavy non-structured JSON payload inserts via `insertMany`), offloading huge write pressures from PostgreSQL.
+### Core Features
+
+- **Telemetry Ingestion:** High-throughput event ingestion (NoSQL).
+- **Profile Generation:** FSLSM calculation based on game-based learning data.
+- **Adaptive Material Selection:** Euclidean Distance ranking over multidimensional metadata objects.
 
 ---
 
-## Environment Configuration
+## Technologies & Packages
 
-Create a `.env` file referencing `.env.example`. Make sure you inject absolute MongoDB cluster URLs:
+- **NestJS:** Strict TypeScript execution framework.
+- **Prisma & Mongoose:** Polyglot persistence across Neon (PostgreSQL) and Atlas (MongoDB).
+- **Serverless Framework:** Complete AWS IaC scaffolding (`serverless.yml`).
+- **Swagger (@nestjs/swagger):** Fully decorated REST API endpoint generation.
+- **Jest & Supertest:** Multi-tier testing implementation (Unit/E2E).
 
-```env
-# Local Development (Docker Compose)
-DATABASE_URL="postgresql://postgres:innova_secret@localhost:5432/innova_dev_db?schema=public"
+---
 
-# Production / Cloud Database (Neon)
-# DATABASE_URL="postgresql://neon_user:neon_password@ep-neon-endpoint.region.aws.neon.tech/neon_db?sslmode=require"
+## Project Structure Analysis
 
-MONGODB_URI="mongodb+srv://innova_backend:auto_generated_password@cluster0.mongodb.net/innova_telemetry_dev?retryWrites=true&w=majority"
-COGNITO_USER_POOL_ID=
-COGNITO_CLIENT_ID=
-COGNITO_REGION="us-east-1"
+The backend structure uses a strict **Clean Architecture (Domain-Driven)** paradigm:
 
 ```
-
----
-
-## Deployment (CI/CD)
-
-The project leverages **GitHub Actions** and the **Serverless Framework** (`serverless.yml`).
-
-We execute our CI/CD workflows under `.github/workflows/deploy.yml`. When pushing to `main`, the CI checks typings, formatting, and runs Jest. Upon success, Serverless connects via injected repository secrets to deploy endpoints dynamically to AWS Lambda.
-
-**Required GitHub Repository Secrets**:
-
-- `AWS_ACCESS_KEY_ID`: IAM user `innova-serverless-deployer`
-- `AWS_SECRET_ACCESS_KEY`: Key context
-- `DATABASE_URL`: Resolving to Cloud Neon DB.
-- `MONGODB_URI`: Atlas Cluster endpoint pointing to `innova_telemetry_prod`.
-
----
-
-## Local Development
-
-For Zero-Cost development, a containerized Postgres instance is deployed. Follow these steps:
-
-1. Install dependencies strictly using pnpm:
-
-   ```bash
-   pnpm install
-   ```
-
-2. Startup local Postgres:
-
-   ```bash
-   docker-compose up -d
-   ```
-
-3. Boot the API:
-
-   ```bash
-   pnpm run start:dev
-   ```
-
-## Commands
-
-```bash
-# Linter & Formatting
-pnpm run format
-pnpm exec eslint . --ext .ts
-
-# Unit Tests (Strict Service mocking logic with Typescript Coverage)
-pnpm run test
-
-# End-to-End Tests (Utilizes complex Supertest overrides intercepting the Mongoose layer)
-pnpm run test:e2e
+src/
+├── application/     # Contains the business use cases (Services) acting as orchestrators.
+│   ├── materials/   # Material management use cases
+│   ├── profiles/    # Profile generation use cases
+│   ├── recommendations/ # Recommendation logic use cases
+│   └── telemetry/   # Telemetry processing use cases
+├── domain/          # Core entities, strictly decoupled from frameworks.
+│   ├── profiles/    # Rules regarding the FSLSM profiles.
+│   └── telemetry/   # Definitions for telemetry structures.
+├── infrastructure/  # Everything framework, db, or protocol-specific.
+│   ├── aws/         # SQS/Lambda integrations
+│   ├── database/    # Prisma & Mongoose connection setups
+│   ├── external/    # AI engines or external HTTP calls
+│   └── http/        # NestJS Controllers parsing HTTP traffic.
+├── materials/       # The Material Module configuration.
+├── profiles/        # The Profiles Module configuration.
+├── recommendations/ # The Recommendations Module configuration.
+└── shared/          # Shared utilities and global exceptions.
+    ├── exceptions/  # App-wide global exception filters handling internal routing to HTTP codes.
+    └── utils/       # General logic (dates, math).
 ```
+
+### Purpose of Empty Folders
+
+- `src/domain/telemetry/`: Reserved for mathematical equations parsing NoSQL schema inputs over time (future domain rules for the Firehose).
+- `src/infrastructure/external/`: Reserved for interacting with specialized Python AI engines using TCP/HTTP wrappers.
+- `src/infrastructure/aws/`: Intended to hold S3 bucket utilities or decoupled SNS topics.
+
+---
+
+## Local Setup & Development
+
+1. Open `docker-compose.yml` to ensure local PostgreSQL and MongoDB databases are up: `docker-compose up -d`.
+2. Map your `.env` (provided via `.env.example`).
+3. Deploy Prisma definitions: `npx prisma db push` and `npx prisma generate`.
+4. Run server: `npm run start:dev`.
+
+## AWS Serverless Deployment
+
+1. Ensure AWS CLI profiles are configured (`~/.aws/credentials`).
+2. Build NestJS: `npm run build`.
+3. Use Serverless Framework: `npx serverless deploy --stage dev`.
 
 ## License
 

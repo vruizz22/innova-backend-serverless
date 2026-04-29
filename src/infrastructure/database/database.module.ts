@@ -2,6 +2,7 @@ import { Module, Global } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule } from '@nestjs/mongoose';
 import { z } from 'zod';
+import { PrismaService } from './prisma.service';
 
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
@@ -27,7 +28,7 @@ export const envSchema = z.object({
       inject: [ConfigService],
     }),
   ],
-  providers: [],
-  exports: [],
+  providers: [PrismaService],
+  exports: [PrismaService],
 })
 export class DatabaseModule {}

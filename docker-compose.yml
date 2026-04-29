@@ -9,10 +9,24 @@ services:
       POSTGRES_PASSWORD: innova_secret
       POSTGRES_DB: innova_dev_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  mongodb:
+    image: mongo:7.0-rc
+    container_name: innova-mongo-dev
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: innova_mongo_secret
+      MONGO_INITDB_DATABASE: innova_telemetry_local
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  mongodb_data:
