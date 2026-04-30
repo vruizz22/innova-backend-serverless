@@ -13,9 +13,9 @@ provider:
     COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
     COGNITO_REGION: ${env:COGNITO_REGION, ''}
     AWS_REGION: ${env:AWS_REGION, 'us-east-1'}
-    SQS_ATTEMPT_STREAM_URL: !Ref AttemptStreamQueue
-    SQS_LLM_CLASSIFY_URL: !Ref LlmClassifyQueue
-    SQS_OCR_QUEUE_URL: !Ref OcrQueue
+    SQS_ATTEMPT_STREAM_URL: {"Ref": "AttemptStreamQueue"}
+    SQS_LLM_CLASSIFY_URL: {"Ref": "LlmClassifyQueue"}
+    SQS_OCR_QUEUE_URL: {"Ref": "OcrQueue"}
     ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
     GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
     LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
@@ -39,7 +39,7 @@ functions:
     memorySize: 256
     events:
       - sqs:
-          arn: !GetAtt AttemptStreamQueue.Arn
+          arn: {"Fn::GetAtt": ["AttemptStreamQueue", "Arn"]}
           batchSize: 10
           functionResponseType: ReportBatchItemFailures
 
@@ -49,7 +49,7 @@ functions:
     memorySize: 512
     events:
       - sqs:
-          arn: !GetAtt LlmClassifyQueue.Arn
+          arn: {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
           batchSize: 20
           maximumBatchingWindow: 60
           functionResponseType: ReportBatchItemFailures
@@ -60,7 +60,7 @@ functions:
     memorySize: 512
     events:
       - s3:
-          bucket: !Ref OcrUploadsBucket
+          bucket: {"Ref": "OcrUploadsBucket"}
           event: s3:ObjectCreated:*
           existing: false
 
@@ -89,7 +89,7 @@ resources:
         MessageRetentionPeriod: 86400
         VisibilityTimeout: 120
         RedrivePolicy:
-          deadLetterTargetArn: !GetAtt LlmClassifyDLQ.Arn
+          deadLetterTargetArn: {"Fn::GetAtt": ["LlmClassifyDLQ", "Arn"]}
           maxReceiveCount: 3
 
     LlmClassifyDLQ:
