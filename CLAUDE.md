@@ -65,6 +65,7 @@ src/
 - No raw SQL unless justified by performance (document in a comment with the query plan).
 
 Key tables (from `docs/postgresql.dbml`):
+
 - `Skill` — `id, topic, gradeLevel, prerequisites[], description`
 - `Item` — `id, skillId, content (Json), irtDifficulty, irtDiscrimination`
 - `Attempt` — `id, studentId, itemId, rawSteps (Json), finalAnswer, isCorrect, errorType?, classifierSource, confidence?, llmJobId?`
@@ -187,3 +188,17 @@ Validated via `ConfigModule.forRoot({ validationSchema: Joi.object({...}) })` in
 - Do not run synchronous DB calls in async handlers — always `await prisma.*`.
 - Do not hardcode AWS region or account ID — use `ConfigService`.
 - Do not add features beyond what the current milestone requires (see `docs/milestones.md`).
+- Do not use realtive routes in imports — always use absolute paths from `src/` (configured in `tsconfig.json`).
+Examples:
+
+```typescript
+"paths": {
+  "@/*": ["src/*"],
+  "@adapters/*": ["src/adapters/*"],
+  "@infrastructure/*": ["src/infrastructure/*"],
+  "@modules/*": ["src/modules/*"],
+  "@shared/*": ["src/shared/*"]
+  ...
+  ...
+}
+```
