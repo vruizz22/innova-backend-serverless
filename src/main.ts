@@ -3,6 +3,9 @@ import { AppModule } from '@/app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { Logger } from 'nestjs-pino';
+import { AllExceptionsFilter } from '@shared/exceptions/http-exception.filter';
+import { LoggingInterceptor } from '@shared/http/logging.interceptor';
+import { ResponseInterceptor } from '@shared/http/response.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -20,7 +23,14 @@ async function bootstrap() {
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
+      transform: true,
     }),
+  );
+
+  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalInterceptors(
+    new LoggingInterceptor(),
+    new ResponseInterceptor(),
   );
 
   // Swagger Setup
@@ -32,7 +42,9 @@ async function bootstrap() {
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('docs', app, document, {
+    jsonDocumentUrl: 'docs/openapi.json',
+  });
 
   await app.listen(process.env.PORT ?? 3000);
 }
