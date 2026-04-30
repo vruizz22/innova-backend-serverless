@@ -33,14 +33,22 @@ export class AlertsController {
   @ApiBody({
     schema: {
       type: 'object',
+      required: ['classroomId', 'message', 'teacherId'],
       properties: {
         classroomId: { type: 'string' },
         message: { type: 'string' },
+        teacherId: { type: 'string' },
       },
     },
   })
-  create(@Body() body: { classroomId: string; message: string }) {
-    return this.alertsService.create(body.classroomId, body.message);
+  create(
+    @Body() body: { classroomId: string; message: string; teacherId: string },
+  ) {
+    return this.alertsService.create(
+      body.classroomId,
+      body.message,
+      body.teacherId,
+    );
   }
 
   @Patch(':id/resolve')
