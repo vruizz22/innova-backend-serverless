@@ -1,0 +1,145 @@
+// Innova EdTech — MongoDB Telemetry Schema (Atlas M0)
+// Post-pivot v2.0 — 2026-04-29
+// Mongoose-driven, schema enforced via Pydantic v2 mirrors in innova-ai-engine.
+
+Project innova_mongo {
+  database_type: 'MongoDB'
+  Note: '''
+    High-throughput telemetry sink. NO PII.
+    Collections:
+      - attempt_events: raw keystroke / step events with timestamps for replay & debug
+      - llm_classification_jobs: audit log of every LLM call (request, response, cost)
+      - ocr_jobs: audit log of every OCR call (image S3 key, response, cost, confidence)
+  '''
+}
+
+// =====================================================
+//  COLLECTION: attempt_events
+// =====================================================
+
+Table attempt_events {
+  _id              ObjectId  [pk]
+  attempt_id       text      [not null, note: 'FK to Postgres attempts.id']
+  student_id       text      [not null]
+  classroom_id     text
+  trace_id         text      [not null, note: 'propagated from API Gateway request']
+
+  events           jsonb     [not null, note: '''
+    Array of:
+      {
+        timestamp_ms: int,
+        type: 'key_down' | 'paste' | 'submit' | 'hint_request' | 'erase' | 'undo',
+        column: 'units' | 'tens' | 'hundreds' | 'thousands' | 'numerator' | 'denominator',
+        value: string,
+        cursor_pos: int
+      }
+  ''']
+
+  summary jsonb [note: '''
+    {
+      total_events: int,
+      duration_ms: int,
+      hints_used: int,
+      undo_count: int,
+      paste_count: int
+    }
+  ''']
+
+  created_at        timestamptz [not null]
+  archived_to_s3_at timestamptz [note: 'After 30d, drained to S3 raw_events_lake']
+
+  Indexes {
+    attempt_id
+    student_id
+    (created_at, archived_to_s3_at) [note: 'lifecycle queries']
+  }
+}
+
+// =====================================================
+//  COLLECTION: llm_classification_jobs
+// =====================================================
+
+Table llm_classification_jobs {
+  _id                 ObjectId  [pk]
+  attempt_ids         text[]    [not null, note: 'batch of up to 20 Postgres attempt IDs']
+  trace_id            text      [not null]
+  model               text      [not null, note: 'e.g. claude-haiku-4-5-20251001']
+  status              text      [not null, note: 'pending | completed | failed | dlq']
+
+  request_meta jsonb [note: '''
+    {
+      cached_tokens: int,
+      input_tokens: int,
+      output_tokens: int,
+      tool_choice: object,
+      cache_hit: boolean
+    }
+  ''']
+
+  response_meta jsonb [note: '''
+    {
+      classifications: [
+        {attempt_id, error_type, evidence, confidence}
+      ],
+      raw_response_id: string
+    }
+  ''']
+
+  cost_estimated_usd float
+  duration_ms        int
+  retries            int     [default: 0]
+  error_message      text
+
+  created_at   timestamptz [not null]
+  completed_at timestamptz
+
+  Indexes {
+    status
+    created_at
+    trace_id
+  }
+}
+
+// =====================================================
+//  COLLECTION: ocr_jobs
+// =====================================================
+
+Table ocr_jobs {
+  _id            ObjectId   [pk]
+  upload_id      text       [unique, not null]
+  student_id     text       [not null]
+  trace_id       text       [not null]
+
+  s3_key         text       [not null, note: 'uploads/{studentId}/{uuid}.jpg']
+  s3_purge_at    timestamptz [note: '30d post upload']
+
+  primary_provider  text     [not null, note: 'gemini | claude']
+  used_fallback     boolean  [not null, default: false]
+  fallback_provider text     [note: 'claude when gemini confidence <0.7']
+
+  ocr_result jsonb [note: '''
+    {
+      topic_hint: string|null,
+      steps: [{rawText, type, position{x,y,w,h}, confidence}],
+      final_answer: string,
+      overall_confidence: float
+    }
+  ''']
+
+  cost_estimated_usd float
+  duration_ms        int
+  status             text  [not null, note: 'pending | completed | failed | low_confidence_review']
+  error_message      text
+
+  attempt_id   text [note: 'FK to Postgres attempts.id, set after creating attempt']
+
+  created_at   timestamptz [not null]
+  completed_at timestamptz
+
+  Indexes {
+    student_id
+    status
+    upload_id
+    created_at
+  }
+}
