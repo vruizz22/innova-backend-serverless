@@ -5,14 +5,26 @@ provider:
   runtime: nodejs20.x
   region: us-east-1
   stage: ${opt:stage, 'dev'}
-  # Environment Variables that get synced from GitHub Actions / CI
   environment:
     NODE_ENV: ${self:provider.stage}
+    DATABASE_URL: ${env:DATABASE_URL, ''}
     MONGODB_URI: ${env:MONGODB_URI, ''}
+    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID, ''}
+    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
+    COGNITO_REGION: ${env:COGNITO_REGION, ''}
+    AWS_REGION: ${env:AWS_REGION, 'us-east-1'}
+    SQS_ATTEMPT_STREAM_URL: !Ref AttemptStreamQueue
+    SQS_LLM_CLASSIFY_URL: !Ref LlmClassifyQueue
+    SQS_OCR_QUEUE_URL: !Ref OcrQueue
+    ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
+    GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
+    LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
 
 functions:
   api:
     handler: dist/src/lambda.handler
+    timeout: 30
+    memorySize: 512
     events:
       - http:
           method: ANY
@@ -22,23 +34,86 @@ functions:
           path: '{proxy+}'
 
   telemetryWorker:
-    handler: dist/src/sqs-worker.handler
+    handler: dist/src/infrastructure/workers/telemetry-persister.handler.handler
+    timeout: 60
+    memorySize: 256
     events:
       - sqs:
-          arn:
-            Fn::GetAtt:
-              - TelemetryQueue
-              - Arn
+          arn: !GetAtt AttemptStreamQueue.Arn
           batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
+  llmClassifierWorker:
+    handler: dist/src/infrastructure/workers/llm-classifier.handler.handler
+    timeout: 120
+    memorySize: 512
+    events:
+      - sqs:
+          arn: !GetAtt LlmClassifyQueue.Arn
+          batchSize: 20
+          maximumBatchingWindow: 60
+          functionResponseType: ReportBatchItemFailures
+
+  ocrWorker:
+    handler: dist/src/infrastructure/workers/ocr-worker.handler.handler
+    timeout: 60
+    memorySize: 512
+    events:
+      - s3:
+          bucket: !Ref OcrUploadsBucket
+          event: s3:ObjectCreated:*
+          existing: false
+
+  alertGenerator:
+    handler: dist/src/infrastructure/workers/alert-generator.handler.handler
+    timeout: 60
+    memorySize: 256
+    events:
+      - schedule: rate(1 hour)
 
 resources:
   Resources:
-    TelemetryQueue:
+    AttemptStreamQueue:
       Type: AWS::SQS::Queue
       Properties:
-        QueueName: ${self:service}-${self:provider.stage}-telemetry-queue
+        QueueName: ${self:service}-${self:provider.stage}-attempt-stream.fifo
+        FifoQueue: true
+        ContentBasedDeduplication: true
         MessageRetentionPeriod: 86400
         VisibilityTimeout: 60
+
+    LlmClassifyQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-llm-classify-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 120
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt LlmClassifyDLQ.Arn
+          maxReceiveCount: 3
+
+    LlmClassifyDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-llm-classify-dlq
+        MessageRetentionPeriod: 1209600
+
+    OcrQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-ocr-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 60
+
+    OcrUploadsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-${self:provider.stage}-ocr-uploads
+        LifecycleConfiguration:
+          Rules:
+            - Id: PurgeAfter30Days
+              Status: Enabled
+              ExpirationInDays: 30
 
 plugins:
   - serverless-offline
