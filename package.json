@@ -5,6 +5,9 @@
   "author": "Team 23",
   "private": true,
   "license": "GPL-3.0 license",
+  "prisma": {
+    "seed": "ts-node -r tsconfig-paths/register prisma/seed.ts"
+  },
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
