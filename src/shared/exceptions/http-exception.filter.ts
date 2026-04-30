@@ -6,12 +6,29 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
+import { MongooseError } from 'mongoose';
 import { Request, Response } from 'express';
 import {
   DomainException,
   ResourceNotFoundException,
   ValidationException,
-} from './domain.exception';
+} from '@shared/exceptions/domain.exception';
+
+function isPrismaKnownError(
+  exception: unknown,
+): exception is { code: string; message: string } {
+  return (
+    typeof exception === 'object' &&
+    exception !== null &&
+    'code' in exception &&
+    typeof (exception as { code?: unknown }).code === 'string' &&
+    (exception as { code: string }).code.startsWith('P')
+  );
+}
+
+interface TraceRequest extends Request {
+  traceId?: string;
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -20,7 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const request = ctx.getRequest<Request>();
+    const request = ctx.getRequest<TraceRequest>();
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
@@ -46,6 +63,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
       }
       message = exception.message;
       code = exception.code;
+    } else if (isPrismaKnownError(exception)) {
+      status = HttpStatus.BAD_REQUEST;
+      code = exception.code;
+      message = 'Database request error';
+    } else if (exception instanceof MongooseError) {
+      status = HttpStatus.BAD_REQUEST;
+      code = 'MONGOOSE_ERROR';
+      message = exception.message;
     }
 
     this.logger.error(
@@ -56,6 +81,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       statusCode: status,
       timestamp: new Date().toISOString(),
       path: request.url,
+      traceId: request.traceId ?? null,
       code,
       message,
     });
