@@ -8,23 +8,39 @@
 
 ## Tabla de contenidos
 
-- [1. Visión general](#1-visión-general)
-- [2. Arquitectura](#2-arquitectura)
-- [3. Stack tecnológico](#3-stack-tecnológico)
-- [4. Dominio y fundamento teórico](#4-dominio-y-fundamento-teórico)
-- [5. Estructura del repositorio](#5-estructura-del-repositorio)
-- [6. Metodología y flujo de trabajo](#6-metodología-y-flujo-de-trabajo)
-- [7. Variables de entorno](#7-variables-de-entorno)
-- [8. Setup local](#8-setup-local)
-- [9. Tests y cobertura](#9-tests-y-cobertura)
-- [10. Schema de base de datos](#10-schema-de-base-de-datos)
-- [11. Endpoints](#11-endpoints)
-- [12. Despliegue (AWS Lambda + Serverless Framework)](#12-despliegue-aws-lambda--serverless-framework)
-- [13. Costos](#13-costos)
-- [14. Privacidad y cumplimiento NNA](#14-privacidad-y-cumplimiento-nna)
-- [15. Roadmap](#15-roadmap)
-- [16. Recursos](#16-recursos)
-- [17. Licencia](#17-licencia)
+- [innova-backend-serverless](#innova-backend-serverless)
+  - [Tabla de contenidos](#tabla-de-contenidos)
+  - [1. Visión general](#1-visión-general)
+  - [2. Arquitectura](#2-arquitectura)
+  - [3. Stack tecnológico](#3-stack-tecnológico)
+  - [4. Dominio y fundamento teórico](#4-dominio-y-fundamento-teórico)
+  - [5. Estructura del repositorio](#5-estructura-del-repositorio)
+  - [6. Metodología y flujo de trabajo](#6-metodología-y-flujo-de-trabajo)
+    - [6.1 GSD / BMAD](#61-gsd--bmad)
+    - [6.2 AI usage logs](#62-ai-usage-logs)
+    - [6.3 Gitflow](#63-gitflow)
+    - [6.4 Quality gates](#64-quality-gates)
+  - [7. Variables de entorno](#7-variables-de-entorno)
+  - [8. Setup local](#8-setup-local)
+    - [Prerrequisitos](#prerrequisitos)
+    - [Pasos](#pasos)
+    - [Comandos frecuentes](#comandos-frecuentes)
+  - [9. Tests y cobertura](#9-tests-y-cobertura)
+    - [Suites clave](#suites-clave)
+  - [10. Schema de base de datos](#10-schema-de-base-de-datos)
+    - [PostgreSQL (Prisma)](#postgresql-prisma)
+    - [MongoDB (Mongoose)](#mongodb-mongoose)
+  - [11. Endpoints](#11-endpoints)
+  - [12. Despliegue (AWS Lambda + Serverless Framework)](#12-despliegue-aws-lambda--serverless-framework)
+    - [Prerrequisitos AWS](#prerrequisitos-aws)
+    - [Deploy completo](#deploy-completo)
+    - [Re-deploy tras cambios](#re-deploy-tras-cambios)
+    - [CI/CD (GitHub Actions)](#cicd-github-actions)
+  - [13. Costos](#13-costos)
+  - [14. Privacidad y cumplimiento NNA](#14-privacidad-y-cumplimiento-nna)
+  - [15. Roadmap](#15-roadmap)
+  - [16. Recursos](#16-recursos)
+  - [17. Licencia](#17-licencia)
 
 ---
 
@@ -156,6 +172,7 @@ Tipos de error MVP (`subtraction_borrow`):
 
 **Capa 2 — BKT Online Update (síncrono, <1ms)**
 Basado en Corbett & Anderson (1995). Cuatro parámetros por (alumno, skill):
+
 - `p_L0` — probabilidad prior de dominio
 - `p_T` — probabilidad de aprendizaje por intento
 - `p_S` — probabilidad de slip (sabe pero falla)
@@ -257,6 +274,7 @@ Artefactos vivos en `docs/`:
 ### 6.2 AI usage logs
 
 Por cada sesión relevante con Claude Code u otro agente:
+
 - Crear `docs/ai-logs/YYYY-MM-DD-<tema>.md`
 - Incluir: Prompt exacto · Output resumido · Decisión · Tradeoffs
 - Cada PR referencia el AI log que generó esos cambios
@@ -472,10 +490,12 @@ pnpm serverless deploy function -f attemptsHandler --stage prod
 ### CI/CD (GitHub Actions)
 
 `.github/workflows/ci.yml` — se ejecuta en cada PR:
+
 1. `pnpm lint` → `pnpm tsc --noEmit` → `pnpm test:cov`
 2. Bloquea merge si coverage < 75%
 
 `.github/workflows/deploy.yml` — se ejecuta en merge a `main`:
+
 1. Build container → push ECR
 2. `serverless deploy --stage prod`
 
@@ -545,4 +565,4 @@ Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
 ## 17. Licencia
 
-MIT
+Innova - Team 23. Internal GPL-3.0 License.
