@@ -1,4 +1,4 @@
-import { MasteryService } from './mastery.service';
+import { MasteryService } from '@modules/mastery/mastery.service';
 
 describe('MasteryService', () => {
   let service: MasteryService;
