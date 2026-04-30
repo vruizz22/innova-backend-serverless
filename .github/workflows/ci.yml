@@ -58,14 +58,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Wait for DB services to become ready
+        run: |
+          echo "Waiting for Postgres and MongoDB to be ready..."
+          sleep 15
+
       - name: Type check
         run: pnpm tsc --noEmit
 
       - name: Lint
         run: pnpm eslint src/ --max-warnings 0
 
-      - name: Run Prisma migrations
-        run: pnpm prisma migrate deploy
+      - name: Run Prisma migrations (retry)
+        run: |
+          for i in 1 2 3 4 5; do
+            pnpm prisma migrate deploy && break || echo "migrate attempt $i failed, retrying..." && sleep 5
+          done
 
       - name: Run tests with coverage
         run: pnpm jest --coverage --ci --forceExit
