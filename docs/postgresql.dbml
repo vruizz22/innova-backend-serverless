@@ -1,0 +1,190 @@
+// Innova EdTech — PostgreSQL Schema (Neon serverless)
+// Post-pivot v2.0 — 2026-04-29
+// Source of truth: innova-backend-serverless/prisma/schema.prisma
+
+Project innova_postgres {
+  database_type: 'PostgreSQL'
+  Note: '''
+    Single-database, schema-separated.
+    Tables for: organizational hierarchy (schools, classrooms, students, teachers, parents),
+    learning model (skills, items, BKT params), runtime state (attempts, mastery, alerts, practice).
+  '''
+}
+
+// =====================================================
+//  ORGANIZATIONAL ENTITIES
+// =====================================================
+
+Table schools {
+  id         uuid       [pk, default: `gen_random_uuid()`]
+  name       text       [not null]
+  region     text       [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table classrooms {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  school_id   uuid       [ref: > schools.id, not null]
+  name        text       [not null, note: 'e.g. "4°A"']
+  grade_level int        [not null, note: 'Chilean básico 3-6']
+
+  Indexes {
+    school_id
+  }
+}
+
+Table students {
+  id           uuid        [pk, default: `gen_random_uuid()`]
+  cognito_sub  text        [unique, not null]
+  email        text        [unique]
+  first_name   text        [not null]
+  last_name    text        [not null]
+  classroom_id uuid        [ref: > classrooms.id, not null]
+  created_at   timestamptz [not null, default: `now()`]
+
+  Indexes {
+    classroom_id
+  }
+}
+
+Table teachers {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  cognito_sub text        [unique, not null]
+  email       text        [unique, not null]
+  first_name  text        [not null]
+  last_name   text        [not null]
+  created_at  timestamptz [not null, default: `now()`]
+}
+
+Table classroom_teachers {
+  classroom_id uuid [ref: > classrooms.id]
+  teacher_id   uuid [ref: > teachers.id]
+  Indexes {
+    (classroom_id, teacher_id) [pk]
+  }
+}
+
+Table parents {
+  id          uuid        [pk, default: `gen_random_uuid()`]
+  cognito_sub text        [unique, not null]
+  email       text        [unique, not null]
+  first_name  text        [not null]
+  last_name   text        [not null]
+  created_at  timestamptz [not null, default: `now()`]
+}
+
+Table parent_links {
+  parent_id  uuid [ref: > parents.id]
+  student_id uuid [ref: > students.id]
+  consent_signed_at timestamptz [note: 'COPPA / Ley 21.180 consent timestamp']
+  Indexes {
+    (parent_id, student_id) [pk]
+  }
+}
+
+// =====================================================
+//  LEARNING MODEL
+// =====================================================
+
+Table skills {
+  id            uuid        [pk, default: `gen_random_uuid()`]
+  topic         text        [unique, not null, note: 'e.g. subtraction_borrow']
+  grade_level   int         [not null]
+  prerequisites text[]      [note: 'logical FK to skills.id']
+  description   text        [not null]
+  active        boolean     [not null, default: true]
+}
+
+Table skill_bkt_params {
+  skill_id        uuid       [pk, ref: - skills.id]
+  p_l0            float      [not null, default: 0.30]
+  p_transit       float      [not null, default: 0.10]
+  p_slip          float      [not null, default: 0.10]
+  p_guess         float      [not null, default: 0.20]
+  log_likelihood  float
+  calibrated_at   timestamptz [not null, default: `now()`]
+}
+
+Table items {
+  id                  uuid        [pk, default: `gen_random_uuid()`]
+  skill_id            uuid        [ref: > skills.id, not null]
+  content             jsonb       [not null, note: '{problem, canonicalSolution, expectedSteps}']
+  irt_a               float       [not null, default: 1.0]
+  irt_b               float       [not null, default: 0.0]
+  irt_calibrated_at   timestamptz
+  attempt_count       int         [not null, default: 0]
+  active              boolean     [not null, default: true]
+  created_at          timestamptz [not null, default: `now()`]
+
+  Indexes {
+    skill_id
+  }
+}
+
+// =====================================================
+//  RUNTIME STATE
+// =====================================================
+
+Table attempts {
+  id                 uuid        [pk, default: `gen_random_uuid()`]
+  student_id         uuid        [ref: > students.id, not null]
+  item_id            uuid        [ref: > items.id, not null]
+  raw_steps          jsonb       [not null, note: 'ordered intermediate inputs']
+  final_answer       text        [not null]
+  is_correct         boolean     [not null]
+  error_type         text        [note: 'NULL while pending LLM classification']
+  classifier_source  text        [not null, default: 'rule', note: 'rule | llm | human']
+  confidence         float
+  llm_evidence       text
+  duration_ms        int         [not null]
+  created_at         timestamptz [not null, default: `now()`]
+  classified_at      timestamptz
+
+  Indexes {
+    (student_id, created_at)
+    item_id
+    error_type
+    classifier_source
+  }
+}
+
+Table student_skill_mastery {
+  student_id      uuid        [ref: > students.id]
+  skill_id        uuid        [ref: > skills.id]
+  p_known         float       [not null, default: 0.30]
+  attempts_count  int         [not null, default: 0]
+  last_updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (student_id, skill_id) [pk]
+    p_known [note: 'for at-risk queries']
+  }
+}
+
+Table teacher_alerts {
+  id           uuid        [pk, default: `gen_random_uuid()`]
+  classroom_id uuid        [ref: > classrooms.id, not null]
+  alert_type   text        [not null, note: 'AT_RISK_SKILL | COMMON_ERROR_DETECTED | STUDENT_DROP']
+  payload      jsonb       [not null]
+  created_at   timestamptz [not null, default: `now()`]
+  resolved_at  timestamptz
+  resolved_by  text        [note: 'teacher cognito_sub']
+
+  Indexes {
+    (classroom_id, resolved_at)
+  }
+}
+
+Table practice_assignments {
+  id                 uuid        [pk, default: `gen_random_uuid()`]
+  student_id         uuid        [ref: > students.id, not null]
+  item_ids           uuid[]      [not null]
+  reason             text        [not null, note: 'BKT_UNDER_THRESHOLD | COMMON_ERROR_REPAIR']
+  assigned_at        timestamptz [not null, default: `now()`]
+  completed_at       timestamptz
+  parent_notified_at timestamptz
+
+  Indexes {
+    (student_id, completed_at)
+  }
+}
