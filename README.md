@@ -81,7 +81,7 @@ flowchart TD
 
   subgraph BACKEND["innova-backend-serverless (Lambda)"]
     ATTEMPTS["Attempts Controller"]
-    RULE["Rule Engine\nStrategy + Factory\nless than 5ms"]
+    RULE["Rule Engine\nStrategy + Factory\n<5ms"]
     BKT["BKT Updater\nclosed-form Bayes"]
     MASTERY["Mastery Controller"]
     ITEMS["Items Controller"]
@@ -98,7 +98,7 @@ flowchart TD
   subgraph WORKERS["innova-ai-engine Workers"]
     TPW["Telemetry Persister"]
     LCW["LLM Classifier\nbatch 20x"]
-    OCW["OCR Worker\nGemini to Claude"]
+    OCW["OCR Worker\nGemini → Claude"]
     BKTC["Nightly BKT Calibrator\ncron 07:00 UTC"]
     IRTC["Nightly IRT Calibrator\ncron 07:15 UTC"]
   end
@@ -136,6 +136,35 @@ flowchart TD
   IRTC --> PG
 ```
 
+Secuencia de ingesta de un intento:
+
+```mermaid
+sequenceDiagram
+  participant APP as Practice App
+  participant AGW as API Gateway
+  participant CTL as AttemptsController
+  participant RE as RuleEngine
+  participant BKT as MasteryService
+  participant SQS_F as SQS FIFO
+  participant SQS_L as SQS LLM
+  participant PG as Postgres
+
+  APP->>AGW: POST /attempts {studentId, itemId, rawSteps, finalAnswer}
+  AGW->>CTL: JWT validated → CreateAttemptDto
+  CTL->>RE: classify(rawSteps, item)
+  alt CLASSIFIED
+    RE-->>CTL: {errorType, confidence, source:"rule"}
+    CTL->>BKT: applyAttempt(studentId, skillId, isCorrect)
+    BKT->>PG: upsert StudentSkillMastery
+    CTL->>SQS_F: publishFifo(attempt)
+    CTL-->>APP: 201 {attemptId, isCorrect, errorType, pKnown}
+  else UNCLASSIFIED
+    RE-->>CTL: {errorType:"UNCLASSIFIED"}
+    CTL->>SQS_L: publishStandard(attemptId)
+    CTL-->>APP: 201 {attemptId, isCorrect, errorType:"UNCLASSIFIED"}
+  end
+```
+
 > Diagramas UML formales (componentes, lollipop/socket interfaces, UML Notes con NFRs) en `docs/drawio/`. Guía de construcción en Draw.io: `docs/drawio/01-how-to-draw-high-level-architecture.md`.
 
 ---
@@ -153,7 +182,7 @@ flowchart TD
 | Auth | AWS Cognito | — | JWT pools, sin servidor propio |
 | Cloud | AWS Lambda + API Gateway | — | Pay-per-request, zero idle cost |
 | Deploy | Serverless Framework | 3+ | Multi-function, container images por handler |
-| Tests | Jest + Supertest | 29+ | Coverage ≥75%, E2E con DB real |
+| Tests | Jest + Supertest | — | Coverage ≥75%, E2E con DB real |
 | Lint/Format | ESLint strict + Prettier | — | `noImplicitAny`, `strictNullChecks` |
 | Package manager | pnpm | 9+ | Workspace protocol, eficiencia disco |
 | Containers | Docker + Docker Compose | — | Parity local/prod |
@@ -162,26 +191,41 @@ flowchart TD
 
 ## 4. Dominio y fundamento teórico
 
-El pipeline de clasificación sigue 3 capas:
+El pipeline de clasificación sigue 4 capas:
 
 **Capa 1 — Rule Engine (síncrono, <5ms)**
-Basado en Brown & VanLehn (1980) "Repair Theory": los errores procedurales en aritmética son sistemáticos y catalogables. Se implementan ~80 patrones de error por topic usando **Strategy + Factory**. Coverage esperado: 75–85% de intentos reales.
+Basado en Brown & VanLehn (1980) "Repair Theory": los errores procedurales en aritmética son sistemáticos y catalogables. Se implementan patrones de error por topic usando **Strategy + Factory**. Coverage esperado: 75–85% de intentos reales.
 
 Tipos de error MVP (`subtraction_borrow`):
-`BORROW_OMITTED`, `BORROW_FROM_ZERO_ERROR`, `SIGN_ERROR`, `SUBTRAHEND_MINUEND_SWAPPED`, `PLACE_VALUE_ERROR`, `BASIC_FACT_ERROR`, `PARTIAL_BORROW_ERROR`, `UNCLASSIFIED`
+
+| Error Type | Descripción |
+|-----------|-------------|
+| `BORROW_OMITTED_TENS` | Omite el préstamo en columna unidades |
+| `BORROW_OMITTED_HUNDREDS` | Omite el préstamo en columna centenas |
+| `SUBTRAHEND_MINUEND_SWAPPED` | Resta al revés (sustrayendo mayor del menor) |
+| `BORROW_FROM_ZERO_INCORRECT` | Maneja mal el préstamo desde columna con 0 |
+| `STOP_BORROW_PROPAGATION` | Detiene propagación del préstamo a media columna |
+| `DIGIT_TRANSPOSITION` | Dígitos en el resultado transpuestos |
+| `COLUMN_MISALIGNMENT` | Alineación vertical incorrecta |
+| `ARITHMETIC_FACT_ERROR` | Error en hechos básicos (off-by-1) |
+| `UNCLASSIFIED` | Ninguna regla matchea → SQS LLM queue |
 
 **Capa 2 — BKT Online Update (síncrono, <1ms)**
 Basado en Corbett & Anderson (1995). Cuatro parámetros por (alumno, skill):
 
-- `p_L0` — probabilidad prior de dominio
-- `p_T` — probabilidad de aprendizaje por intento
-- `p_S` — probabilidad de slip (sabe pero falla)
-- `p_G` — probabilidad de guess (no sabe pero acierta)
+```
+P(Ln | obs=1) = (1−pS)·P(Ln−1) / [(1−pS)·P(Ln−1) + pG·(1−P(Ln−1))]
+P(Ln | obs=0) = pS·P(Ln−1)     / [pS·P(Ln−1) + (1−pG)·(1−P(Ln−1))]
+P(Ln) = P(Ln−1|obs) + (1 − P(Ln−1|obs)) · pT
+```
 
-Update closed-form: `P(Ln | obs=1) = (1−pS)·P(Ln−1) / [(1−pS)·P(Ln−1) + pG·(1−P(Ln−1))]`
+Parámetros default (Corbett & Anderson 1995): `pL0=0.30, pT=0.10, pS=0.10, pG=0.20`. Recalibración nightly por `innova-ai-engine` vía grid search.
 
-**Capa 3 — LLM Async (batch 20×, no bloquea HTTP)**
-Basado en IRT 2PL — Lord (1980). Los errores `UNCLASSIFIED` van a SQS Standard y son procesados en batches de 20 por Claude Haiku 4.5 en `innova-ai-engine`.
+**Capa 3 — IRT 2PL (nightly batch)**
+Basado en Lord (1980). Selección óptima del próximo item por Fisher information: maximiza `a²·P(θ)·(1−P(θ))` dado `θ` actual del alumno. Ejecutado en `innova-ai-engine` Lambdas Python.
+
+**Capa 4 — LLM Async Classification (batch 20×)**
+Claude Haiku 4.5 con prompt caching (`cache_control: ephemeral`) + `tool_choice` forzado para output estructurado. Los errores `UNCLASSIFIED` van a SQS Standard y son procesados en batches de 20. Latencia: <5min hasta dashboard del profe.
 
 Literatura completa: `.github/instructions/02-estado-del-arte.md`.
 
@@ -193,63 +237,71 @@ Literatura completa: `.github/instructions/02-estado-del-arte.md`.
 innova-backend-serverless/
 ├── src/
 │   ├── app.module.ts
-│   ├── main.ts
-│   ├── attempts/
-│   │   ├── attempts.controller.ts   # POST /attempts
-│   │   ├── attempts.service.ts      # orchestration: rule → BKT → SQS
-│   │   ├── attempts.service.spec.ts
-│   │   └── dto/
-│   │       └── create-attempt.dto.ts
-│   ├── mastery/
-│   │   ├── mastery.controller.ts    # GET /mastery/:studentId
-│   │   └── mastery.service.ts       # BKT update + read
-│   ├── items/
-│   │   ├── items.controller.ts      # CRUD item bank
-│   │   └── items.service.ts
-│   ├── skills/
-│   │   ├── skills.controller.ts
-│   │   └── skills.service.ts
-│   ├── alerts/
-│   │   ├── alerts.controller.ts     # GET /alerts, PATCH /alerts/:id/resolve
-│   │   └── alerts.service.ts
-│   ├── practice/
-│   │   ├── practice.controller.ts   # POST /practice/assign
-│   │   └── practice.service.ts      # Fisher information item picker
-│   ├── rules-engine/
-│   │   ├── rule-engine.factory.ts   # topic → Strategy mapper
-│   │   ├── rule-strategy.interface.ts
-│   │   └── strategies/
-│   │       ├── subtraction-borrow.strategy.ts
-│   │       └── addition-carry.strategy.ts
+│   ├── main.ts                     # dev entry
+│   ├── lambda.ts                   # Lambda entry (@vendia/serverless-express)
+│   ├── modules/
+│   │   ├── attempts/
+│   │   │   ├── attempts.controller.ts   # POST /attempts
+│   │   │   ├── attempts.service.ts      # orchestration: rule → BKT → SQS
+│   │   │   ├── dto/create-attempt.dto.ts
+│   │   │   └── rule-engine/
+│   │   │       ├── engine.service.ts    # orquestador de estrategias
+│   │   │       ├── factory.ts           # topic → Strategy
+│   │   │       └── strategies/
+│   │   │           └── subtraction-borrow.strategy.ts  # 9 error types
+│   │   ├── mastery/
+│   │   │   ├── mastery.controller.ts    # GET /mastery/:studentId
+│   │   │   └── mastery.service.ts       # BKT closed-form update
+│   │   ├── items/
+│   │   │   ├── items.controller.ts
+│   │   │   └── items.service.ts
+│   │   ├── skills/
+│   │   │   ├── skills.controller.ts
+│   │   │   └── skills.service.ts
+│   │   ├── alerts/
+│   │   │   ├── alerts.controller.ts     # GET /alerts, PATCH /alerts/:id/resolve
+│   │   │   └── alerts.service.ts
+│   │   ├── practice/
+│   │   │   ├── practice.controller.ts   # POST /practice/assign
+│   │   │   └── practice.service.ts      # Fisher information item picker
+│   │   └── auth/
+│   │       └── jwt-auth.guard.ts        # Cognito JWKS validation
 │   ├── adapters/
-│   │   └── cognito/
-│   │       ├── cognito.guard.ts
-│   │       └── current-user.decorator.ts
-│   ├── workers/
-│   │   └── telemetry/
-│   │       ├── telemetry.consumer.ts  # SQS FIFO → Mongo + S3
-│   │       └── telemetry.service.ts
+│   │   ├── anthropic.adapter.ts         # Haiku 4.5, prompt caching, tool_use
+│   │   ├── sqs.adapter.ts               # publishFifo + publishStandard
+│   │   ├── cognito.adapter.ts
+│   │   └── math-ocr/
+│   │       ├── math-ocr.port.ts         # MathOCRPort interface
+│   │       ├── gemini-vision.adapter.ts # primary OCR (free tier)
+│   │       ├── claude-vision.adapter.ts # fallback OCR
+│   │       └── math-ocr.orchestrator.ts # confidence-based escalation ≥0.85
+│   ├── infrastructure/
+│   │   ├── database/
+│   │   │   └── prisma.service.ts        # singleton serverless-safe, lazy connect
+│   │   └── workers/
+│   │       ├── telemetry-persister.handler.ts  # SQS FIFO → MongoDB + S3
+│   │       ├── llm-classifier.handler.ts       # SQS batch-20 → Anthropic → Postgres
+│   │       ├── ocr-worker.handler.ts            # S3 ObjectCreated → OCR → Attempt
+│   │       └── alert-generator.handler.ts       # cron horaria → TeacherAlert
 │   └── shared/
-│       ├── prisma/
-│       │   └── prisma.service.ts
-│       ├── sqs/
-│       │   └── sqs-producer.service.ts
-│       └── config/
-│           └── config.module.ts       # Joi schema validation
+│       ├── interceptors/               # ResponseInterceptor, LoggingInterceptor
+│       ├── filters/                    # AllExceptionsFilter
+│       └── middleware/                 # TraceIdMiddleware
 ├── prisma/
-│   ├── schema.prisma
+│   ├── schema.prisma                   # schema post-pivot completo
 │   ├── migrations/
-│   └── seed.ts                        # 10 skills + 50 items
+│   └── seed.ts                         # 1 School, 5 Students, 30 Items
 ├── test/
 │   └── app.e2e-spec.ts
-├── docs/                               # BMAD/GSD artefactos
+├── docs/
 │   ├── roadmap.md
 │   ├── milestones.md
 │   ├── requirements.md
-│   └── architecture.md
-├── docker-compose.yml                  # postgres + mongodb local
-├── Dockerfile                          # multi-stage para Lambda container
-├── serverless.yml
+│   ├── architecture.md                 # ADRs 001–010
+│   └── error-taxonomy.md               # catálogo completo por topic
+├── docker-compose.yml                  # postgres 16 + mongodb 7 local
+├── Dockerfile                          # multi-stage Lambda container
+├── serverless.yml                      # Lambda functions + SQS + S3 resources
 ├── .env.example
 └── README.md
 ```
@@ -269,7 +321,7 @@ Artefactos vivos en `docs/`:
 | `docs/roadmap.md` | Milestones M0–M6, fechas, riesgos |
 | `docs/milestones.md` | Sprints, DoR, DoD, ciclos |
 | `docs/requirements.md` | RF/NFR trazables |
-| `docs/architecture.md` | ADRs con tradeoffs (ADR-001 a ADR-011) |
+| `docs/architecture.md` | ADRs con tradeoffs (ADR-001 a ADR-010) |
 
 ### 6.2 AI usage logs
 
@@ -318,6 +370,8 @@ Plantilla en `.env.example`. **Nunca commitear `.env`.**
 | `SQS_LLM_CLASSIFY_URL` | URL SQS Standard llm-classify-queue | ✅ |
 | `SQS_OCR_QUEUE_URL` | URL SQS Standard ocr-queue | ✅ |
 | `AWS_REGION` | Región AWS de los recursos | ✅ |
+| `ANTHROPIC_API_KEY` | API key de Anthropic | ✅ (prod) |
+| `GEMINI_API_KEY` | API key de Google AI Studio | ✅ (prod) |
 | `LOG_LEVEL` | `debug` / `info` / `warn` | ❌ (default: `info`) |
 
 ---
@@ -396,7 +450,7 @@ pnpm test:watch
 
 | Suite | Qué verifica |
 |-------|-------------|
-| `rules-engine` | Golden set de 200 intentos, uno por error type — todos deben clasificar correctamente |
+| `subtraction-borrow.strategy` | 9 tests, 1 por error_type — clasificación correcta con golden set |
 | `mastery.service` | `pKnown ∈ [0,1]`, monotonically increases under correct answers (property test) |
 | `attempts.controller` (E2E) | POST attempt → DB row creado + SQS message enviado |
 | `telemetry.consumer` | Mock SQS event → MongoDB write + S3 put |
@@ -412,12 +466,17 @@ Ver spec completo: `docs/prompt/01-innova-backend-serverless-testing.md`
 ### PostgreSQL (Prisma)
 
 ```
-Skill            — topic, gradeLevel, prerequisites[]
-Item             — skillId, content (Json), irtDifficulty, irtDiscrimination
-Attempt          — studentId, itemId, rawSteps (Json), errorType?, classifierSource, confidence?
-StudentSkillMastery — @@id([studentId, skillId]), pKnown, pSlip, pGuess, pTransit
-TeacherAlert     — classroomId, alertType, payload (Json)
-PracticeAssignment — studentId, itemIds[], reason, assignedAt
+School            — id, name, region
+Classroom         — id, schoolId, name, gradeLevel
+Student           — id, cognitoSub, classroomId
+Teacher           — id, cognitoSub, classrooms[]
+Skill             — id, topic (unique), gradeLevel, prerequisites[]
+SkillBKTParams    — skillId (PK), pL0, pTransit, pSlip, pGuess, calibratedAt
+Item              — id, skillId, content (Json), irtA, irtB, attemptCount
+Attempt           — id, studentId, itemId, rawSteps (Json), errorType?, classifierSource, confidence?
+StudentSkillMastery — @@id([studentId, skillId]), pKnown, attemptsCount
+TeacherAlert      — id, classroomId, alertType, payload (Json)
+PracticeAssignment — id, studentId, itemIds[], reason, assignedAt
 ```
 
 Schema completo: `prisma/schema.prisma`. DBML documentado: `docs/postgresql.dbml`.
@@ -445,8 +504,10 @@ DBML: `docs/mongodb.dbml`.
 | GET | `/alerts` | Alertas sin resolver del classroom | JWT |
 | PATCH | `/alerts/:id/resolve` | Marcar alerta resuelta | JWT (teacher) |
 | POST | `/practice/assign` | Generar PracticeAssignment | JWT (teacher) |
+| POST | `/uploads/presigned-url` | Generar presigned URL para foto de cuaderno | JWT |
 
 Todos los endpoints requieren `Authorization: Bearer <cognito-jwt>` excepto `/health`.
+Swagger disponible en `http://localhost:3000/api` en modo dev.
 
 ---
 
@@ -455,36 +516,46 @@ Todos los endpoints requieren `Authorization: Bearer <cognito-jwt>` excepto `/he
 ### Prerrequisitos AWS
 
 1. Cuenta AWS con Free Tier activo.
-2. ECR repository creado: `aws ecr create-repository --repository-name innova-backend`.
-3. Cognito User Pool + App Client configurados.
-4. SQS queues creadas (FIFO + 2 Standard).
-5. Neon Postgres: proyecto creado en [neon.tech](https://neon.tech), free tier.
+2. Cognito User Pool + App Client configurados (pools: `Student`, `Teacher`, `Parent`).
+3. SQS queues creadas vía `serverless deploy` (FIFO attempt-stream + 2 Standard).
+4. Neon Postgres: proyecto creado en [neon.tech](https://neon.tech), free tier.
+5. MongoDB Atlas M0: cluster en [cloud.mongodb.com](https://cloud.mongodb.com), free tier.
+
+```bash
+# Crear User Pool con MFA para teachers
+aws cognito-idp create-user-pool --pool-name innova-teachers \
+  --mfa-configuration ON \
+  --auto-verified-attributes email
+
+# Obtener JWKS URI (para COGNITO_USER_POOL_ID)
+# https://cognito-idp.<REGION>.amazonaws.com/<POOL_ID>/.well-known/jwks.json
+```
 
 ### Deploy completo
 
 ```bash
-# Build container image
-docker build -t innova-backend .
+# Instalar Serverless Framework CLI
+pnpm add -g serverless
 
-# Tag y push a ECR
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+# Configurar credenciales AWS
+aws configure
 
-docker tag innova-backend:latest \
-  <account>.dkr.ecr.us-east-1.amazonaws.com/innova-backend:latest
+# Variables de entorno para deploy
+export DATABASE_URL="postgresql://..."
+export MONGODB_URI="mongodb+srv://..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+export GEMINI_API_KEY="AIza..."
 
-docker push <account>.dkr.ecr.us-east-1.amazonaws.com/innova-backend:latest
-
-# Deploy vía Serverless Framework
-pnpm serverless deploy --stage prod
+# Deploy (crea SQS, S3, Lambda functions)
+pnpm build
+serverless deploy --stage prod
 ```
 
 ### Re-deploy tras cambios
 
 ```bash
-git pull origin main
 pnpm build
-pnpm serverless deploy function -f attemptsHandler --stage prod
+serverless deploy function -f api --stage prod
 ```
 
 ### CI/CD (GitHub Actions)
@@ -496,8 +567,25 @@ pnpm serverless deploy function -f attemptsHandler --stage prod
 
 `.github/workflows/deploy.yml` — se ejecuta en merge a `main`:
 
-1. Build container → push ECR
-2. `serverless deploy --stage prod`
+1. `pnpm build`
+2. `pnpm prisma migrate deploy`
+3. `serverless deploy --stage prod`
+
+Secrets requeridos en GitHub:
+
+| Secret | Descripción |
+|--------|-------------|
+| `DATABASE_URL` | Neon Postgres prod connection string |
+| `MONGODB_URI` | Atlas M0 connection string |
+| `COGNITO_USER_POOL_ID` | Pool ID de AWS Cognito |
+| `COGNITO_CLIENT_ID` | App Client ID |
+| `COGNITO_REGION` | Región del pool (e.g. `us-east-1`) |
+| `AWS_ACCESS_KEY_ID` | IAM key para deploy |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret para deploy |
+| `ANTHROPIC_API_KEY` | Claude Haiku 4.5 API key |
+| `GEMINI_API_KEY` | Google AI Studio API key |
+
+**Rollback:** `serverless rollback --timestamp <timestamp>` o re-deploy de la versión anterior.
 
 ---
 
@@ -513,25 +601,28 @@ Proyección: **1000 alumnos activos, 22 días lectivos, ~30 intentos/alumno/día
 | Neon Postgres (free tier) | $0.00 |
 | MongoDB Atlas M0 | $0.00 |
 | S3 + CloudFront | $3.50 |
-| **Total backend** | **~$11** |
+| Anthropic Haiku 4.5 (LLM classifier, con caching) | ~$28.00 |
+| Gemini 2.0 Flash Vision (OCR) | ~$99.00 |
+| **Total backend** | **~$45/mes** |
 
-AI engine adicional (LLM + OCR): ~$30/mes. Total plataforma completa: **~$44/mes** en Neon free tier.
-
-Costo por alumno/mes: **~$0.04**. Costo anual por colegio (300 alumnos): **~$160**.
+Costo por alumno/mes: **~$0.05**. Costo anual por colegio (300 alumnos): **~$162**.
 
 Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
-**Killswitches activos:** CloudWatch billing alarm a $80 → pausa automática de Lambdas LLM/OCR. SSM Parameters `/innova/llm/paused` y `/innova/ocr/paused` controlados por `innova-ai-engine`.
+**Killswitches activos:**
+- CloudWatch billing alarm a **$80 LLM** → SSM `LLM_PAUSED=true` → Lambda LLM consumer verifica antes de llamar Anthropic → mensajes van a DLQ.
+- CloudWatch billing alarm a **$50 OCR** → SSM `OCR_PAUSED=true` → fallback a "carga digital obligatoria".
 
 ---
 
 ## 14. Privacidad y cumplimiento NNA
 
-- **COPPA + Ley 21.180 (Chile):** cero PII llega al LLM. Solo `student_uuid` (UUID) en mensajes SQS.
-- Imágenes de worksheets: filename = UUID aleatorio, EXIF stripped antes del upload a S3.
+- **COPPA + Ley 21.180 (Chile):** cero PII llega al LLM o al OCR provider. Solo `student_uuid` en mensajes SQS.
+- Imágenes de worksheets: filename = UUID aleatorio, purgadas a 30 días vía S3 lifecycle policy.
 - Cognito JWT requerido en todos los endpoints — sin acceso anónimo.
-- `classifierSource` en cada `Attempt` permite auditoría completa (rule / llm / human).
-- Datos de menores no se comparten con terceros analíticos.
+- `classifierSource` en cada `Attempt` permite auditoría completa: `rule` / `llm` / `human`.
+- Consentimiento parental registrado en `ParentLink` antes de habilitar uploads de fotos.
+- Datos de menores no se comparten con servicios analíticos de terceros.
 
 ---
 
@@ -540,12 +631,12 @@ Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 | Milestone | Fecha | Entregable |
 |-----------|-------|-----------|
 | M0 — Spec & Governance | 29 abr | Plan pivot, ADRs, docs BMAD, error-taxonomy |
-| M1 — Refactor instructions | 30 abr | 10 instruction files + prompts + drawio |
-| **M2 — Backend skeleton** | **3 may (Entrega 2)** | modules attempts/mastery/items/skills/alerts/practice + Prisma migrations + CI |
-| M3 — AI engine | 17 may | bkt/ + irt/ + llm_classifier/ + OCR worker |
-| M4 — Frontend | 7 jun (Entrega 3) | apps/practice + apps/teacher + apps/parent |
-| M5 — Integration pilot | 12 jun | E2E real con curso piloto (~20 alumnos) |
-| M6 — Hardening | 19 jun (Entrega 4) | CloudWatch alarms, cost monitoring, IRT pipeline automatizado |
+| M1 — Backend skeleton | 30 abr — 2 may | modules + Prisma migrations + Prisma real + CI |
+| **M2 — MVP demo** | **3 may (Entrega 2)** | E2E demo 1 topic subtraction_borrow, 5 alumnos |
+| M3 — AI engine | 4–30 may | BKT/IRT nightly + LLM classifier + OCR worker |
+| **M4 — Entrega 3** | **7 jun** | 3 topics, coverage ≥75%, pilot real con 5+ alumnos |
+| M5 — Polish + Tauri | 8–18 jun | parent app, Tauri desktop, onboarding flow |
+| **M6 — Entrega 4** | **19 jun** | Producto en producción para incubadora |
 
 ---
 
