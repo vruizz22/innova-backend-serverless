@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Type check · Lint · Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: innova
+          POSTGRES_PASSWORD: innova
+          POSTGRES_DB: innova_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    env:
+      DATABASE_URL: postgresql://innova:innova@localhost:5432/innova_test
+      MONGODB_URI: mongodb://localhost:27017/innova_test
+      COGNITO_USER_POOL_ID: us-east-1_TESTPOOL
+      COGNITO_CLIENT_ID: testclientid
+      COGNITO_REGION: us-east-1
+      SQS_ATTEMPT_STREAM_URL: https://sqs.us-east-1.amazonaws.com/000000000000/attempt-stream.fifo
+      SQS_LLM_CLASSIFY_URL: https://sqs.us-east-1.amazonaws.com/000000000000/llm-classify-queue
+      SQS_OCR_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/000000000000/ocr-queue
+      AWS_REGION: us-east-1
+      LOG_LEVEL: warning
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm tsc --noEmit
+
+      - name: Lint
+        run: pnpm eslint src/ --max-warnings 0
+
+      - name: Run Prisma migrations
+        run: pnpm prisma migrate deploy
+
+      - name: Run tests with coverage
+        run: pnpm jest --coverage --ci --forceExit
+        env:
+          JEST_JUNIT_OUTPUT_DIR: ./reports
+
+      - name: Assert coverage ≥75%
+        run: pnpm jest --coverage --coverageThreshold='{"global":{"lines":75,"branches":75,"functions":75}}' --passWithNoTests
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
