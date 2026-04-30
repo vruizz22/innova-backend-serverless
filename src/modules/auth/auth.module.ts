@@ -5,6 +5,7 @@ import { RolesGuard } from '@modules/auth/roles.guard';
 
 @Module({
   providers: [
+    JwtAuthGuard,
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
