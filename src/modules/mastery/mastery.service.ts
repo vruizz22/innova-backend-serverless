@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 
 export interface MasteryState {
   studentId: string;
@@ -8,43 +9,63 @@ export interface MasteryState {
 
 @Injectable()
 export class MasteryService {
-  private readonly masteryStore = new Map<string, MasteryState>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  applyAttempt(
+  async applyAttempt(
     studentId: string,
     skillKey: string,
     isCorrect: boolean,
   ): Promise<MasteryState> {
-    const key = `${studentId}:${skillKey}`;
-    const existing = this.masteryStore.get(key) ?? {
-      studentId,
-      skillKey,
-      pKnown: 0.2,
-    };
+    await this.prisma.ensureConnected();
 
-    const pT = 0.1;
-    const pS = 0.02;
-    const pG = 0.2;
+    const skill = await this.prisma.skill.findUnique({
+      where: { key: skillKey },
+      include: { bktParams: true },
+    });
 
-    const prior = existing.pKnown;
+    const pL0 = skill?.bktParams?.pL0 ?? 0.3;
+    const pT = skill?.bktParams?.pT ?? 0.1;
+    const pS = skill?.bktParams?.pS ?? 0.1;
+    const pG = skill?.bktParams?.pG ?? 0.2;
+
+    const existing = skill
+      ? await this.prisma.studentSkillMastery.findUnique({
+          where: { studentId_skillId: { studentId, skillId: skill.id } },
+        })
+      : null;
+
+    const prior = existing?.pKnown ?? pL0;
+
     const posteriorGivenObs = isCorrect
       ? ((1 - pS) * prior) / ((1 - pS) * prior + pG * (1 - prior))
       : (pS * prior) / (pS * prior + (1 - pG) * (1 - prior));
 
-    const updated = Math.min(
+    const pKnown = Math.min(
       1,
       Math.max(0, posteriorGivenObs + (1 - posteriorGivenObs) * pT),
     );
-    const state: MasteryState = { ...existing, pKnown: updated };
-    this.masteryStore.set(key, state);
-    return Promise.resolve(state);
+
+    if (skill) {
+      await this.prisma.studentSkillMastery.upsert({
+        where: { studentId_skillId: { studentId, skillId: skill.id } },
+        create: { studentId, skillId: skill.id, pKnown },
+        update: { pKnown },
+      });
+    }
+
+    return { studentId, skillKey, pKnown };
   }
 
-  getStudentMastery(studentId: string): Promise<MasteryState[]> {
-    return Promise.resolve(
-      [...this.masteryStore.values()].filter(
-        (state) => state.studentId === studentId,
-      ),
-    );
+  async getStudentMastery(studentId: string): Promise<MasteryState[]> {
+    await this.prisma.ensureConnected();
+    const records = await this.prisma.studentSkillMastery.findMany({
+      where: { studentId },
+      include: { skill: true },
+    });
+    return records.map((r) => ({
+      studentId,
+      skillKey: r.skill.key,
+      pKnown: r.pKnown,
+    }));
   }
 }
