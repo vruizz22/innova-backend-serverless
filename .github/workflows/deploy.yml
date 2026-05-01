@@ -26,7 +26,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: pnpm
+          cache: "pnpm"
 
       - uses: pnpm/action-setup@v3
         with:
@@ -63,7 +63,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: pnpm
+          cache: "pnpm"
 
       - uses: pnpm/action-setup@v3
         with:
@@ -75,10 +75,13 @@ jobs:
       - name: Build Application
         run: pnpm build
 
+      - name: Resolve deploy stage
+        run: echo "DEPLOY_STAGE=${{ github.event.inputs.stage || 'dev' }}" >> "$GITHUB_ENV"
+
       - name: Serverless Deploy (with alias and health checks)
         uses: serverless/github-action@v3.2.0
         with:
-          args: "deploy --stage ${{ github.event.inputs.stage || 'dev' }} --alias ${{ github.sha }}"
+          args: deploy --stage ${{ env.DEPLOY_STAGE }} --alias ${{ github.sha }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
