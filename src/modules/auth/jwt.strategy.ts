@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
@@ -24,9 +23,9 @@ function extractBearerToken(req: RequestLike): string | null {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
-    const region = config.get<string>('COGNITO_REGION', 'us-east-1');
-    const userPoolId = config.get<string>('COGNITO_USER_POOL_ID', '');
+  constructor() {
+    const region = process.env['COGNITO_REGION'] ?? 'us-east-1';
+    const userPoolId = process.env['COGNITO_USER_POOL_ID'] ?? '';
     const issuer = `https://cognito-idp.${region}.amazonaws.com/${userPoolId}`;
 
     super({
