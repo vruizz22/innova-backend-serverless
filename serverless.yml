@@ -43,12 +43,8 @@ provider:
     LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
 
 custom:
-  # Custom domain per stage — prod uses api.superprofes.app
-  domainName:
-    dev: api-dev.superprofes.app
-    prod: api.superprofes.app
   customDomain:
-    domainName: ${self:custom.domainName.${self:provider.stage}, ''}
+    domainName: api.superprofes.app
     basePath: ''
     stage: ${self:provider.stage}
     createRoute53Record: false   # DNS gestionado en name.com, no Route53
