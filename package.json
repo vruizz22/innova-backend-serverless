@@ -72,6 +72,7 @@
     "prettier": "^3.4.2",
     "prisma": "^7.7.0",
     "serverless": "^3.38.0",
+    "serverless-domain-manager": "^7.3.7",
     "serverless-esbuild": "^1.52.1",
     "serverless-offline": "^13.9.0",
     "source-map-support": "^0.5.21",
