@@ -58,8 +58,8 @@ export class SkillsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a skill' })
   @ApiParam({ name: 'id' })
-  remove(@Param('id') id: string): void {
-    this.skillsService.remove(id);
+  remove(@Param('id') id: string): Promise<boolean> {
+    return this.skillsService.remove(id);
   }
 
   @Get(':id/prerequisites')
