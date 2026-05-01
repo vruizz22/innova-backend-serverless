@@ -3,19 +3,19 @@ import { Document } from 'mongoose';
 
 @Schema({ _id: false })
 export class TelemetryEvent {
-  @Prop({ required: true })
+  @Prop({ type: String, required: true })
   eventType!: string;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, required: true })
   x!: number;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, required: true })
   y!: number;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, required: true })
   durationMs!: number;
 
-  @Prop({ required: true })
+  @Prop({ type: Date, required: true })
   timestamp!: Date;
 }
 export const TelemetryEventSchema =
@@ -23,13 +23,13 @@ export const TelemetryEventSchema =
 
 @Schema({ _id: false })
 export class TelemetryMetadata {
-  @Prop({ required: true })
+  @Prop({ type: String, required: true })
   deviceType!: string;
 
-  @Prop({ required: true })
+  @Prop({ type: String, required: true })
   clientVersion!: string;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, required: true })
   fps!: number;
 }
 export const TelemetryMetadataSchema =
@@ -39,16 +39,16 @@ export type RawTelemetryDocument = RawTelemetry & Document;
 
 @Schema({ timestamps: true, collection: 'raw_telemetries' })
 export class RawTelemetry {
-  @Prop({ required: true, index: true })
+  @Prop({ type: String, required: true, index: true })
   student_uuid!: string;
 
-  @Prop({ required: true })
+  @Prop({ type: String, required: true })
   gameId!: string;
 
-  @Prop({ required: true, index: true })
+  @Prop({ type: String, required: true, index: true })
   sessionId!: string;
 
-  @Prop({ required: true, default: Date.now })
+  @Prop({ type: Date, required: true, default: Date.now })
   timestamp!: Date;
 
   @Prop({ type: [TelemetryEventSchema], default: [] })
