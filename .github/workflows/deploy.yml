@@ -12,7 +12,7 @@ on:
       stage:
         description: "Target stage"
         required: false
-        default: "dev"
+        default: "prod"
 
 jobs:
   test-and-build:
@@ -55,7 +55,7 @@ jobs:
         run: pnpm build
 
   deploy:
-    name: Deploy to AWS
+    name: Deploy to AWS (prod)
     needs: test-and-build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
@@ -80,8 +80,13 @@ jobs:
       - name: Generate Prisma client
         run: pnpm prisma generate
 
+      - name: Run Prisma Migrations
+        run: pnpm prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Serverless Deploy
-        run: pnpm exec serverless deploy --stage ${{ github.event.inputs.stage || 'dev' }}
+        run: pnpm exec serverless deploy --stage ${{ github.event.inputs.stage || 'prod' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -95,7 +100,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
       - name: Post-deploy info
-        run: pnpm exec serverless info --verbose --stage ${{ github.event.inputs.stage || 'dev' }}
+        run: pnpm exec serverless info --verbose --stage ${{ github.event.inputs.stage || 'prod' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

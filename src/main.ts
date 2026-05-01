@@ -15,7 +15,7 @@ async function bootstrap() {
 
   // Global Config (FaztWeb Directive Setup)
   app.enableCors({
-    origin: ['http://localhost:3000', 'https://innovamvp.tech'],
+    origin: ['http://localhost:3000', 'https://superprofes.app'],
     credentials: true,
   });
 

@@ -43,6 +43,15 @@ provider:
     LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
 
 custom:
+  customDomain:
+    domainName: api.superprofes.app
+    basePath: ''
+    stage: ${self:provider.stage}
+    createRoute53Record: false   # DNS gestionado en name.com, no Route53
+    endpointType: REGIONAL
+    securityPolicy: tls_1_2
+    autoDomain: false
+
   esbuild:
     bundle: true
     minify: false
@@ -154,4 +163,5 @@ resources:
 
 plugins:
   - serverless-esbuild
+  - serverless-domain-manager
   - serverless-offline
