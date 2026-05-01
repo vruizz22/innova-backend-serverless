@@ -1,41 +1,39 @@
 import { Injectable } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
-
-export interface AlertView {
-  id: string;
-  classroomId: string;
-  message: string;
-  resolved: boolean;
-}
+import { TeacherAlert } from '@prisma/client';
+import { PrismaService } from '@infrastructure/database/prisma.service';
 
 @Injectable()
 export class AlertsService {
-  private readonly alerts = new Map<string, AlertView>();
+  constructor(private readonly prisma: PrismaService) {}
 
-  create(classroomId: string, message: string): AlertView {
-    const created: AlertView = {
-      id: randomUUID(),
-      classroomId,
-      message,
-      resolved: false,
-    };
-    this.alerts.set(created.id, created);
-    return created;
+  async create(
+    classroomId: string,
+    message: string,
+    teacherId: string,
+  ): Promise<TeacherAlert> {
+    await this.prisma.ensureConnected();
+    return this.prisma.teacherAlert.create({
+      data: { teacherId, classroomId, message },
+    });
   }
 
-  findByClassroom(classroomId: string): AlertView[] {
-    return [...this.alerts.values()].filter(
-      (alert) => alert.classroomId === classroomId,
-    );
+  async findByClassroom(classroomId: string): Promise<TeacherAlert[]> {
+    await this.prisma.ensureConnected();
+    return this.prisma.teacherAlert.findMany({
+      where: { classroomId, resolved: false },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
-  resolve(id: string): AlertView | null {
-    const existing = this.alerts.get(id);
-    if (!existing) {
-      return null;
-    }
-    const updated: AlertView = { ...existing, resolved: true };
-    this.alerts.set(id, updated);
-    return updated;
+  async resolve(id: string): Promise<TeacherAlert | null> {
+    await this.prisma.ensureConnected();
+    const existing = await this.prisma.teacherAlert.findUnique({
+      where: { id },
+    });
+    if (!existing) return null;
+    return this.prisma.teacherAlert.update({
+      where: { id },
+      data: { resolved: true },
+    });
   }
 }
