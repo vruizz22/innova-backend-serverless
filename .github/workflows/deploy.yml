@@ -35,6 +35,9 @@ jobs:
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
       - name: Run Linter
         run: pnpm exec eslint src/ --max-warnings=0
 
@@ -71,6 +74,9 @@ jobs:
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm prisma generate
 
       - name: Build Application
         run: pnpm build

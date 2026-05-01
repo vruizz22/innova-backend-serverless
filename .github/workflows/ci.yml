@@ -63,6 +63,9 @@ jobs:
           echo "Waiting for Postgres and MongoDB to be ready..."
           sleep 15
 
+      - name: Generate Prisma client
+        run: pnpm prisma generate
+
       - name: Type check
         run: pnpm tsc --noEmit
 
