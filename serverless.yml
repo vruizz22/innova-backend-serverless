@@ -41,9 +41,24 @@ provider:
     GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
     LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
 
+custom:
+  esbuild:
+    bundle: true
+    minify: false
+    sourcemap: true
+    target: node20
+    platform: node
+    concurrency: 4
+    keepNames: true
+    external:
+      - '@nestjs/microservices'
+      - '@nestjs/websockets'
+      - 'class-transformer/storage'
+    packager: pnpm
+
 functions:
   api:
-    handler: dist/src/lambda.handler
+    handler: src/lambda.handler
     timeout: 30
     memorySize: 512
     events:
@@ -55,7 +70,7 @@ functions:
           path: '{proxy+}'
 
   telemetryWorker:
-    handler: dist/src/infrastructure/workers/telemetry-persister.handler.handler
+    handler: src/infrastructure/workers/telemetry-persister.handler.handler
     timeout: 60
     memorySize: 256
     events:
@@ -65,7 +80,7 @@ functions:
           functionResponseType: ReportBatchItemFailures
 
   llmClassifierWorker:
-    handler: dist/src/infrastructure/workers/llm-classifier.handler.handler
+    handler: src/infrastructure/workers/llm-classifier.handler.handler
     timeout: 120
     memorySize: 512
     events:
@@ -76,7 +91,7 @@ functions:
           functionResponseType: ReportBatchItemFailures
 
   ocrWorker:
-    handler: dist/src/infrastructure/workers/ocr-worker.handler.handler
+    handler: src/infrastructure/workers/ocr-worker.handler.handler
     timeout: 60
     memorySize: 512
     events:
@@ -86,7 +101,7 @@ functions:
           existing: true
 
   alertGenerator:
-    handler: dist/src/infrastructure/workers/alert-generator.handler.handler
+    handler: src/infrastructure/workers/alert-generator.handler.handler
     timeout: 60
     memorySize: 256
     events:
@@ -137,4 +152,5 @@ resources:
               ExpirationInDays: 30
 
 plugins:
+  - serverless-esbuild
   - serverless-offline
