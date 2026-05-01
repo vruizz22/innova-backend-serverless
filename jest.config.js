@@ -10,5 +10,9 @@ module.exports = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
+    '^@adapters/(.*)$': '<rootDir>/adapters/$1',
+    '^@infrastructure/(.*)$': '<rootDir>/infrastructure/$1',
+    '^@modules/(.*)$': '<rootDir>/modules/$1',
+    '^@shared/(.*)$': '<rootDir>/shared/$1',
   },
 };
