@@ -22,15 +22,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "pnpm"
-
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 9
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -62,15 +63,16 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "pnpm"
-
-      - uses: pnpm/action-setup@v3
-        with:
-          version: 9
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
