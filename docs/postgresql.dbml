@@ -1,0 +1,147 @@
+// Innova EdTech — PostgreSQL Schema (Post-pivot)
+// Source of truth: prisma/schema.prisma
+
+Project innova_postgres {
+  database_type: 'PostgreSQL'
+  Note: 'Operational relational schema for schools, skills, attempts, mastery, and alerts.'
+}
+
+Table users {
+  id text [pk]
+  email text [unique, not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table schools {
+  id text [pk]
+  name text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table classrooms {
+  id text [pk]
+  school_id text [not null]
+  name text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table students {
+  id text [pk]
+  user_id text [not null]
+  classroom_id text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table teachers {
+  id text [pk]
+  user_id text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table parents {
+  id text [pk]
+  user_id text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table parent_links {
+  id text [pk]
+  parent_id text [not null]
+  student_id text [not null]
+  created_at timestamptz [not null]
+}
+
+Table skills {
+  id text [pk]
+  key text [unique, not null]
+  name text [not null]
+  description text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table skill_bkt_params {
+  id text [pk]
+  skill_id text [unique, not null]
+  p_l0 float [not null]
+  p_t float [not null]
+  p_s float [not null]
+  p_g float [not null]
+}
+
+Table items {
+  id text [pk]
+  skill_id text [not null]
+  content jsonb [not null]
+  irt_a float [not null]
+  irt_b float [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table attempts {
+  id text [pk]
+  student_id text [not null]
+  item_id text
+  is_correct boolean [not null]
+  error_type text
+  classifier_source text [not null]
+  confidence float
+  llm_evidence jsonb
+  raw_steps jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table student_skill_mastery {
+  id text [pk]
+  student_id text [not null]
+  skill_id text [not null]
+  p_known float [not null]
+  updated_at timestamptz [not null]
+
+  indexes {
+    (student_id, skill_id) [unique]
+  }
+}
+
+Table teacher_alerts {
+  id text [pk]
+  teacher_id text [not null]
+  classroom_id text
+  student_id text
+  message text [not null]
+  resolved boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table practice_assignments {
+  id text [pk]
+  student_id text [not null]
+  items jsonb [not null]
+  due_at timestamptz
+  created_at timestamptz [not null]
+}
+
+Ref: classrooms.school_id > schools.id
+Ref: students.user_id > users.id
+Ref: students.classroom_id > classrooms.id
+Ref: teachers.user_id > users.id
+Ref: parents.user_id > users.id
+Ref: parent_links.parent_id > parents.id
+Ref: parent_links.student_id > students.id
+Ref: skill_bkt_params.skill_id > skills.id
+Ref: items.skill_id > skills.id
+Ref: attempts.student_id > students.id
+Ref: attempts.item_id > items.id
+Ref: student_skill_mastery.student_id > students.id
+Ref: student_skill_mastery.skill_id > skills.id
+Ref: teacher_alerts.teacher_id > teachers.id
+Ref: practice_assignments.student_id > students.id

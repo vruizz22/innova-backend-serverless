@@ -1,0 +1,196 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-1.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ClassifierSource {
+  RULE_ENGINE
+  LLM
+  OCR
+  HUMAN
+}
+
+enum ErrorType {
+  BORROW_OMITTED
+  BORROW_FROM_ZERO_ERROR
+  SIGN_ERROR
+  SUBTRAHEND_MINUEND_SWAPPED
+  PLACE_VALUE_ERROR
+  BASIC_FACT_ERROR
+  PARTIAL_BORROW_ERROR
+  UNCLASSIFIED
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relations
+  students  Student[]
+  teachers  Teacher[]
+  parents   Parent[]
+}
+
+model School {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  classrooms Classroom[]
+}
+
+model Classroom {
+  id        String   @id @default(uuid())
+  name      String
+  schoolId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  school    School   @relation(fields: [schoolId], references: [id])
+  students  Student[]
+}
+
+model Student {
+  id         String   @id @default(uuid())
+  userId     String
+  classroomId String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id])
+  classroom  Classroom? @relation(fields: [classroomId], references: [id])
+  mastery    StudentSkillMastery[]
+  attempts   Attempt[]
+  parentLinks ParentLink[]
+  practiceAssignments PracticeAssignment[]
+}
+
+model Teacher {
+  id        String   @id @default(uuid())
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+  alerts    TeacherAlert[]
+}
+
+model Parent {
+  id        String   @id @default(uuid())
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id])
+  links     ParentLink[]
+}
+
+model ParentLink {
+  id        String   @id @default(uuid())
+  parentId  String
+  studentId String
+  createdAt DateTime @default(now())
+
+  parent    Parent   @relation(fields: [parentId], references: [id])
+  student   Student  @relation(fields: [studentId], references: [id])
+}
+
+model Skill {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  name      String
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  bktParams SkillBKTParams?
+  items     Item[]
+  mastery   StudentSkillMastery[]
+}
+
+model SkillBKTParams {
+  id        String  @id @default(uuid())
+  skillId   String  @unique
+  pL0       Float   @default(0.2)
+  pT        Float   @default(0.1)
+  pS        Float   @default(0.02)
+  pG        Float   @default(0.2)
+
+  skill     Skill   @relation(fields: [skillId], references: [id])
+}
+
+model Item {
+  id        String   @id @default(uuid())
+  skillId   String
+  content   Json
+  irtA      Float    @default(1.0)
+  irtB      Float    @default(0.0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skill     Skill    @relation(fields: [skillId], references: [id])
+  attempts  Attempt[]
+}
+
+model Attempt {
+  id               String          @id @default(uuid())
+  studentId        String
+  itemId           String?
+  isCorrect        Boolean
+  errorType        ErrorType?
+  classifierSource ClassifierSource @default(RULE_ENGINE)
+  confidence       Float?
+  llmEvidence      Json?
+  rawSteps         Json?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  student          Student         @relation(fields: [studentId], references: [id])
+  item             Item?           @relation(fields: [itemId], references: [id])
+}
+
+model StudentSkillMastery {
+  id        String   @id @default(uuid())
+  studentId String
+  skillId   String
+  pKnown    Float    @default(0.0)
+  updatedAt DateTime @updatedAt
+
+  student   Student  @relation(fields: [studentId], references: [id])
+  skill     Skill    @relation(fields: [skillId], references: [id])
+
+  @@unique([studentId, skillId])
+}
+
+model TeacherAlert {
+  id          String   @id @default(uuid())
+  teacherId   String
+  classroomId String?
+  studentId   String?
+  message     String
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+}
+
+model PracticeAssignment {
+  id          String   @id @default(uuid())
+  studentId   String
+  items       Json
+  dueAt       DateTime?
+  createdAt   DateTime @default(now())
+
+  student     Student  @relation(fields: [studentId], references: [id])
+}
