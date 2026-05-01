@@ -34,7 +34,6 @@ provider:
     COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID, ''}
     COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
     COGNITO_REGION: ${env:COGNITO_REGION, ''}
-    AWS_REGION: ${env:AWS_REGION, 'us-east-1'}
     SQS_ATTEMPT_STREAM_URL: {"Ref": "AttemptStreamQueue"}
     SQS_LLM_CLASSIFY_URL: {"Ref": "LlmClassifyQueue"}
     SQS_OCR_QUEUE_URL: {"Ref": "OcrQueue"}
