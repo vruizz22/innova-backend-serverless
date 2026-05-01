@@ -5,6 +5,28 @@ provider:
   runtime: nodejs20.x
   region: us-east-1
   stage: ${opt:stage, 'dev'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            - sqs:GetQueueUrl
+          Resource:
+            - {"Fn::GetAtt": ["AttemptStreamQueue", "Arn"]}
+            - {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
+            - {"Fn::GetAtt": ["LlmClassifyDLQ", "Arn"]}
+            - {"Fn::GetAtt": ["OcrQueue", "Arn"]}
+        - Effect: Allow
+          Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:DeleteObject
+          Resource:
+            - {"Fn::Sub": "arn:aws:s3:::${self:service}-${self:provider.stage}-ocr-uploads/*"}
   environment:
     NODE_ENV: ${self:provider.stage}
     DATABASE_URL: ${env:DATABASE_URL, ''}
@@ -60,9 +82,9 @@ functions:
     memorySize: 512
     events:
       - s3:
-          bucket: {"Ref": "OcrUploadsBucket"}
+          bucket: ${self:service}-${self:provider.stage}-ocr-uploads
           event: s3:ObjectCreated:*
-          existing: false
+          existing: true
 
   alertGenerator:
     handler: dist/src/infrastructure/workers/alert-generator.handler.handler

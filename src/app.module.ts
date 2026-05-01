@@ -1,7 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { LoggerModule } from 'nestjs-pino';
 import { DatabaseModule } from '@infrastructure/database/database.module';
 import { TelemetryModule } from '@infrastructure/telemetry.module';
-import { ProfilesModule } from '@/profiles/profiles.module';
 import { AppController } from '@/app.controller';
 import { AppService } from '@/app.service';
 import { SkillsModule } from '@modules/skills/skills.module';
@@ -15,9 +15,11 @@ import { TraceIdMiddleware } from '@shared/http/trace-id.middleware';
 
 @Module({
   imports: [
+    LoggerModule.forRoot({
+      pinoHttp: { level: process.env['LOG_LEVEL'] ?? 'info' },
+    }),
     DatabaseModule,
     TelemetryModule,
-    ProfilesModule,
     SkillsModule,
     ItemsModule,
     AttemptsModule,
