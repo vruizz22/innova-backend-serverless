@@ -4,6 +4,20 @@
 
 **Production-Ready for Sunday Demo** 🚀
 
+### Local Auth Added
+
+The backend now exposes a working local auth flow for demo/Postman:
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/forgot-password`
+- `POST /auth/confirm-forgot-password`
+- `GET /auth/me`
+- `POST /auth/logout`
+
+Demo password for seeded accounts: `Innova123!`
+
 ### What's Working
 
 | Component | Status | Details |
@@ -18,14 +32,16 @@
 
 ### What's NOT Required for Demo
 
-E2E tests framework is created but Passport mock refinement is **non-blocking**:
-- Unit tests provide 100% coverage of auth logic
+E2E tests framework is still worth hardening, but it is **non-blocking** for the demo:
+
+- Unit tests provide 100% coverage of the auth logic already exercised here
 - Seed data is pre-populated for manual testing
-- Endpoints are protected and working (errors in E2E are mock-related, not production code)
+- Local auth endpoints are working end-to-end against the live backend
 
 ## Demo Setup Instructions
 
 ### 1. Verify Seed Data Loaded
+
 ```bash
 cd innova-backend-serverless
 pnpm prisma db seed
@@ -33,6 +49,7 @@ pnpm prisma db seed
 ```
 
 ### 2. Run Unit Tests (Verify Framework)
+
 ```bash
 # All auth tests
 pnpm test -- "auth"
@@ -43,6 +60,7 @@ pnpm test -- users.service.spec
 ```
 
 ### 3. Manual Testing on Production Build
+
 ```bash
 # Start backend
 docker-compose up
@@ -55,11 +73,14 @@ curl -H "Authorization: Bearer <TOKEN>" http://localhost:3000/items
 ## Generating Test Tokens
 
 ### For Demo Purposes
+
 Use the seeded users directly:
+
 - **Teacher**: `teacher@innova.demo` | cognitoSub: `us-east-1:00000000-0000-0000-0000-000000000001`
 - **Student 1**: `student1@innova.demo` | cognitoSub: `us-east-1:00000000-0000-0000-0000-000000000011`
 
 In production, tokens come from AWS Cognito. For testing locally:
+
 1. Log in via Expo/Next.js app (will create real Cognito token)
 2. Extract token from browser DevTools or app logs
 3. Use token in API tests
@@ -69,7 +90,8 @@ In production, tokens come from AWS Cognito. For testing locally:
 | Issue | Impact | Mitigation |
 |-------|--------|-----------|
 | E2E test Passport mock | Only affects E2E suite | Unit tests (21/21) verify all logic. Manual testing validates flow |
-| No OAuth/OIDC spec | By design | Cognito handles login/register. Backend validates tokens only |
+| E2E test Passport mock | Only affects E2E suite | Unit tests + live curl validation cover auth flow |
+| Cognito-only auth | No longer true | Local auth endpoints now complement Cognito JWT validation |
 | No automatic token refresh in tests | Expected | Client SDKs implement refresh; backend validates current tokens |
 
 ## Production Checklist
@@ -98,6 +120,7 @@ In production, tokens come from AWS Cognito. For testing locally:
 - ✅ `test/auth.e2e-spec.ts` - E2E framework (Passport mock refinement needed)
 - ✅ `test/jest-e2e.json` - E2E Jest config with path mappings
 - ✅ `docs/auth-integration.md` - Client guides (500+ lines)
+- ✅ `docs/postman-api-guide.md` - Postman endpoint reference
 - ✅ `prompt-claude.md` - Updated continuation prompt
 
 ---
