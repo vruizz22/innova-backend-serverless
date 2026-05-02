@@ -1,8 +1,25 @@
-import { Body, Controller, Headers, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Headers,
+  Post,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { randomUUID } from 'node:crypto';
-import { ApiBody, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiConsumes,
+  ApiOperation,
+  ApiResponse,
+  ApiTags,
+} from '@nestjs/swagger';
 import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
-import { AttemptsService } from '@modules/attempts/attempts.service';
+import {
+  AttemptsService,
+  OcrExtractResult,
+} from '@modules/attempts/attempts.service';
 
 @ApiTags('attempts')
 @Controller('attempts')
@@ -19,5 +36,27 @@ export class AttemptsController {
   ) {
     const traceId = traceIdHeader ?? randomUUID();
     return this.attemptsService.create(dto, traceId);
+  }
+
+  @Post('ocr-extract')
+  @ApiOperation({
+    summary: 'Extract math steps from a handwritten image (OCR)',
+  })
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        image: { type: 'string', format: 'binary' },
+      },
+      required: ['image'],
+    },
+  })
+  @ApiResponse({ status: 201, description: 'OCR extraction result' })
+  @UseInterceptors(FileInterceptor('image'))
+  async ocrExtract(
+    @UploadedFile() file: { buffer: Buffer },
+  ): Promise<OcrExtractResult> {
+    return this.attemptsService.extractOcr(file.buffer);
   }
 }

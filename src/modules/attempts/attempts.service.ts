@@ -3,9 +3,20 @@ import { ErrorType, Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { MasteryService } from '@modules/mastery/mastery.service';
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import {
+  CreateAttemptDto,
+  AttemptStepDto,
+} from '@modules/attempts/dto/create-attempt.dto';
 import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { RuleClassificationResult } from '@modules/attempts/rule-engine/strategy.interface';
+import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
+
+export interface OcrExtractResult {
+  rawSteps: AttemptStepDto[];
+  finalAnswer: string;
+  topicHint: string | null;
+  confidence: number;
+}
 
 export interface AttemptResponse {
   attemptId: string;
@@ -42,6 +53,7 @@ export class AttemptsService {
     private readonly ruleEngine: RuleEngineService,
     private readonly masteryService: MasteryService,
     private readonly sqsAdapter: SqsAdapter,
+    private readonly ocrOrchestrator: MathOCROrchestrator,
   ) {}
 
   async create(
@@ -85,13 +97,30 @@ export class AttemptsService {
     });
 
     if (classified.errorType === 'UNCLASSIFIED') {
+      const item = dto.itemId
+        ? await this.prisma.item.findUnique({ where: { id: dto.itemId } })
+        : null;
+
+      // Build problem_statement from item.content JSON or from minuend/subtrahend fields
+      const content = item?.content as
+        | Record<string, unknown>
+        | null
+        | undefined;
+      const problemStatement =
+        typeof content?.['problemStatement'] === 'string'
+          ? content['problemStatement']
+          : `${dto.minuend ?? ''} - ${dto.subtrahend ?? ''} = ?`;
+
       await this.sqsAdapter.publishStandard({
         queueUrl: process.env['SQS_LLM_CLASSIFY_URL'] ?? '',
         messageBody: {
-          attemptId: attempt.id,
-          traceId,
-          studentId: dto.studentId,
-          skillKey: dto.skillKey,
+          id: attempt.id,
+          topic: dto.skillKey,
+          problem_statement: problemStatement,
+          canonical_solution: String(dto.expectedAnswer),
+          raw_steps: dto.rawSteps,
+          final_answer: String(dto.studentAnswer),
+          student_id: dto.studentId,
         },
       });
     }
@@ -103,6 +132,16 @@ export class AttemptsService {
       classifierSource:
         classified.errorType === 'UNCLASSIFIED' ? 'LLM' : 'RULE_ENGINE',
       confidence: classified.confidence,
+    };
+  }
+
+  async extractOcr(imageBuffer: Buffer): Promise<OcrExtractResult> {
+    const result = await this.ocrOrchestrator.extract(imageBuffer);
+    return {
+      rawSteps: result.rawSteps,
+      finalAnswer: result.finalAnswer,
+      topicHint: result.topicHint,
+      confidence: result.confidence,
     };
   }
 }
