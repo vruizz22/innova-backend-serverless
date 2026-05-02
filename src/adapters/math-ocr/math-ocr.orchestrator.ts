@@ -16,12 +16,17 @@ export class MathOCROrchestrator {
     this.claude = claudeAdapter;
   }
 
-  async extract(imageUrl: string): Promise<MathOCRResult> {
-    const primary = await this.gemini.extract(imageUrl);
+  async extract(imageBytes: Buffer): Promise<MathOCRResult> {
+    const primary = await this.gemini.extract(imageBytes);
     if (primary.confidence >= 0.85) {
       return primary;
     }
-    const fallback = await this.claude.extract(imageUrl);
-    return fallback.confidence > primary.confidence ? fallback : primary;
+    try {
+      const fallback = await this.claude.extract(imageBytes);
+      return fallback.confidence > primary.confidence ? fallback : primary;
+    } catch {
+      // Claude OCR not enabled for MVP — return primary result regardless
+      return primary;
+    }
   }
 }
