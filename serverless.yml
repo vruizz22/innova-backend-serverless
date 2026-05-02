@@ -133,7 +133,7 @@ resources:
       Properties:
         QueueName: ${self:service}-${self:provider.stage}-llm-classify-queue
         MessageRetentionPeriod: 86400
-        VisibilityTimeout: 120
+        VisibilityTimeout: 360
         RedrivePolicy:
           deadLetterTargetArn: {"Fn::GetAtt": ["LlmClassifyDLQ", "Arn"]}
           maxReceiveCount: 3
