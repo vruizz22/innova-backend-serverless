@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomBytes, scryptSync } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -76,6 +77,14 @@ const ITEMS_BY_ERROR: Record<string, ItemSeed[]> = {
   ],
 };
 
+const DEMO_PASSWORD = 'Innova123!';
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, 64);
+  return `${salt}.${derivedKey.toString('hex')}`;
+}
+
 async function main() {
   console.log('🌱 Starting seed...');
 
@@ -107,10 +116,16 @@ async function main() {
 
   const teacherUser = await prisma.user.upsert({
     where: { email: 'teacher@innova.demo' },
-    update: { cognitoSub: DEMO_COGNITO_SUBS.teacher },
+    update: {
+      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      authRole: 'teacher',
+      passwordHash: hashPassword(DEMO_PASSWORD),
+    },
     create: {
       email: 'teacher@innova.demo',
       cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      authRole: 'teacher',
+      passwordHash: hashPassword(DEMO_PASSWORD),
     },
   });
 
@@ -135,8 +150,17 @@ async function main() {
     const { email, cognitoSub } = studentData[i];
     const sUser = await prisma.user.upsert({
       where: { email },
-      update: { cognitoSub },
-      create: { email, cognitoSub },
+      update: {
+        cognitoSub,
+        authRole: 'student',
+        passwordHash: hashPassword(DEMO_PASSWORD),
+      },
+      create: {
+        email,
+        cognitoSub,
+        authRole: 'student',
+        passwordHash: hashPassword(DEMO_PASSWORD),
+      },
     });
     await prisma.student.upsert({
       where: { id: `seed-student-00${i + 1}` },
