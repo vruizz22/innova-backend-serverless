@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "^3.1032.0",
+    "@google/generative-ai": "^0.24.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
@@ -59,6 +60,7 @@
     "@types/aws-lambda": "^8.10.161",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/multer": "^2.1.0",
     "@types/node": "^22.10.7",
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.20.0",

@@ -161,6 +161,12 @@ resources:
               Status: Enabled
               ExpirationInDays: 30
 
+  Outputs:
+    LlmClassifyQueueArn:
+      Value: {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-LlmClassifyQueueArn
+
 plugins:
   - serverless-esbuild
   - serverless-domain-manager
