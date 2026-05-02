@@ -7,11 +7,17 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByCognitoSub(cognitoSub: string): Promise<LinkedPrismaUser | null> {
-    return this.prisma.user.findUnique({ where: { cognitoSub } });
+    return this.prisma.user.findUnique({
+      where: { cognitoSub },
+      select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
+    });
   }
 
   async findByEmail(email: string): Promise<LinkedPrismaUser | null> {
-    return this.prisma.user.findUnique({ where: { email } });
+    return this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
+    });
   }
 
   async linkCognitoSubToUser(
@@ -21,6 +27,7 @@ export class UsersService {
     return this.prisma.user.update({
       where: { id: userId },
       data: { cognitoSub },
+      select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
     });
   }
 
@@ -42,8 +49,8 @@ export class UsersService {
       const byEmail = await this.findByEmail(email);
       if (byEmail) {
         // link the cognito sub for future fast lookups
-        await this.linkCognitoSubToUser(byEmail.id, sub);
-        return { ...byEmail, cognitoSub: sub };
+        const linkedUser = await this.linkCognitoSubToUser(byEmail.id, sub);
+        return linkedUser;
       }
     }
 
