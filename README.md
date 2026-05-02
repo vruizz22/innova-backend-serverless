@@ -169,7 +169,29 @@ sequenceDiagram
 
 ---
 
-## 3. Stack tecnológico
+## 3. Autenticación
+
+El backend ahora expone un flujo completo de autenticación local para demo y Postman, además de mantener la validación de JWT de Cognito para tokens externos.
+
+### Endpoints de auth
+
+- `POST /auth/register` - crea un usuario local con email, password y rol.
+- `POST /auth/login` - autentica con email y password y devuelve `accessToken` + `refreshToken`.
+- `POST /auth/refresh` - renueva la sesión usando el refresh token.
+- `POST /auth/forgot-password` - genera un código temporal de recuperación.
+- `POST /auth/confirm-forgot-password` - confirma el cambio de contraseña con el código.
+- `GET /auth/me` - devuelve el usuario autenticado actual.
+- `POST /auth/logout` - revoca la sesión incrementando la versión de token.
+
+### Demo local
+
+- Usuario teacher semilla: `teacher@innova.demo`
+- Usuarios student semilla: `student1@innova.demo` ... `student5@innova.demo`
+- Password demo compartida: `Innova123!`
+- Tokens locales firmados con HS256 y issuer `innova-local-auth`
+- Los tokens de Cognito siguen siendo compatibles para escenarios reales
+
+## 4. Stack tecnológico
 
 | Capa | Tecnología | Versión | Razón |
 |------|-----------|---------|-------|
