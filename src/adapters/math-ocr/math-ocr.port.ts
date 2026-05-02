@@ -1,9 +1,13 @@
+import { AttemptStepDto } from '@modules/attempts/dto/create-attempt.dto';
+
 export interface MathOCRResult {
   extractedText: string;
   confidence: number;
-  rawSteps: string[];
+  rawSteps: AttemptStepDto[];
+  topicHint: string | null;
+  finalAnswer: string;
 }
 
 export interface MathOCRPort {
-  extract(imageUrl: string): Promise<MathOCRResult>;
+  extract(imageBytes: Buffer): Promise<MathOCRResult>;
 }
