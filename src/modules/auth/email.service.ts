@@ -6,7 +6,6 @@ import { Resend } from 'resend';
  * EmailService — Sends password reset emails with secure tokens.
  *
  * Production: Uses the Resend API.
- * Local dev: Returns a controlled error if Resend is not configured.
  */
 @Injectable()
 export class EmailService {
@@ -21,24 +20,15 @@ export class EmailService {
   private initializeClient(): void {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL');
-    const nodeEnv = this.configService.get<string>('NODE_ENV') ?? 'development';
-
-    if (apiKey && fromEmail) {
-      this.resendClient = new Resend(apiKey);
-      this.fromEmail = fromEmail;
-      this.logger.log('✅ Resend API configured for email delivery');
-      return;
-    }
-
-    if (nodeEnv === 'production') {
+    if (!apiKey || !fromEmail) {
       throw new Error(
         'RESEND_API_KEY and RESEND_FROM_EMAIL are required in production',
       );
     }
 
-    this.logger.warn(
-      '⚠️  Resend is not configured. Password reset emails will not be sent in this environment.',
-    );
+    this.resendClient = new Resend(apiKey);
+    this.fromEmail = fromEmail;
+    this.logger.log('✅ Resend API configured for email delivery');
   }
 
   async sendPasswordResetEmail(
@@ -46,9 +36,6 @@ export class EmailService {
     resetLink: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
     if (!this.resendClient || !this.fromEmail) {
-      this.logger.warn(
-        `⚠️  Resend is not configured. Password reset email would have been sent to ${toEmail}`,
-      );
       return {
         success: false,
         error:
