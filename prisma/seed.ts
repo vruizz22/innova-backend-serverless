@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomBytes, scryptSync } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '@prisma/client';
 
@@ -76,6 +77,14 @@ const ITEMS_BY_ERROR: Record<string, ItemSeed[]> = {
   ],
 };
 
+const DEMO_PASSWORD = 'Innova123!';
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = scryptSync(password, salt, 64);
+  return `${salt}.${derivedKey.toString('hex')}`;
+}
+
 async function main() {
   console.log('🌱 Starting seed...');
 
@@ -95,10 +104,29 @@ async function main() {
     },
   });
 
+  // Demo Cognito subjects (deterministic UUIDs for testing)
+  const DEMO_COGNITO_SUBS = {
+    teacher: 'us-east-1:00000000-0000-0000-0000-000000000001',
+    student1: 'us-east-1:00000000-0000-0000-0000-000000000011',
+    student2: 'us-east-1:00000000-0000-0000-0000-000000000012',
+    student3: 'us-east-1:00000000-0000-0000-0000-000000000013',
+    student4: 'us-east-1:00000000-0000-0000-0000-000000000014',
+    student5: 'us-east-1:00000000-0000-0000-0000-000000000015',
+  };
+
   const teacherUser = await prisma.user.upsert({
     where: { email: 'teacher@innova.demo' },
-    update: {},
-    create: { email: 'teacher@innova.demo' },
+    update: {
+      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      authRole: 'teacher',
+      passwordHash: hashPassword(DEMO_PASSWORD),
+    },
+    create: {
+      email: 'teacher@innova.demo',
+      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      authRole: 'teacher',
+      passwordHash: hashPassword(DEMO_PASSWORD),
+    },
   });
 
   const teacher = await prisma.teacher.upsert({
@@ -106,21 +134,33 @@ async function main() {
     update: {},
     create: { id: 'seed-teacher-001', userId: teacherUser.id },
   });
-  console.log(`✅ Teacher: ${teacher.id}`);
+  console.log(
+    `✅ Teacher: ${teacher.id} (cognitoSub: ${DEMO_COGNITO_SUBS.teacher})`,
+  );
 
-  const studentEmails = [
-    'student1@innova.demo',
-    'student2@innova.demo',
-    'student3@innova.demo',
-    'student4@innova.demo',
-    'student5@innova.demo',
+  const studentData = [
+    { email: 'student1@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student1 },
+    { email: 'student2@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student2 },
+    { email: 'student3@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student3 },
+    { email: 'student4@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student4 },
+    { email: 'student5@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student5 },
   ];
 
-  for (let i = 0; i < studentEmails.length; i++) {
+  for (let i = 0; i < studentData.length; i++) {
+    const { email, cognitoSub } = studentData[i];
     const sUser = await prisma.user.upsert({
-      where: { email: studentEmails[i] },
-      update: {},
-      create: { email: studentEmails[i] },
+      where: { email },
+      update: {
+        cognitoSub,
+        authRole: 'student',
+        passwordHash: hashPassword(DEMO_PASSWORD),
+      },
+      create: {
+        email,
+        cognitoSub,
+        authRole: 'student',
+        passwordHash: hashPassword(DEMO_PASSWORD),
+      },
     });
     await prisma.student.upsert({
       where: { id: `seed-student-00${i + 1}` },
@@ -132,7 +172,7 @@ async function main() {
       },
     });
   }
-  console.log('✅ 5 Students created');
+  console.log('✅ 5 Students created with cognitoSub linking');
 
   const skill = await prisma.skill.upsert({
     where: { key: 'subtraction_borrow' },
@@ -178,6 +218,22 @@ async function main() {
   console.log(`   Teacher ID: ${teacher.id}`);
   console.log(`   Skill ID: ${skill.id}`);
   console.log(`   Error types covered: ${ERROR_TYPES.join(', ')}`);
+  console.log(
+    `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
+  );
+  console.log(`   teacher@innova.demo → ${DEMO_COGNITO_SUBS.teacher}`);
+  console.log(
+    `\n💡 To add real Cognito groups, run AWS CLI commands (after user signup):`,
+  );
+  console.log(
+    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username teacher@innova.demo --group-name TEACHER`,
+  );
+  console.log(
+    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username student1@innova.demo --group-name STUDENT`,
+  );
+  console.log(
+    `\n📝 Demo users are seeded with hardcoded cognitoSub for local testing.`,
+  );
 }
 
 main()

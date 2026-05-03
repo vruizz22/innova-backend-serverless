@@ -12,7 +12,11 @@
   - [Tabla de contenidos](#tabla-de-contenidos)
   - [1. Visión general](#1-visión-general)
   - [2. Arquitectura](#2-arquitectura)
-  - [3. Stack tecnológico](#3-stack-tecnológico)
+  - [3. Autenticación](#3-autenticación)
+    - [Endpoints de auth](#endpoints-de-auth)
+    - [Demo local](#demo-local)
+      - [Password recovery workflow](#password-recovery-workflow)
+  - [4. Stack tecnológico](#4-stack-tecnológico)
   - [4. Dominio y fundamento teórico](#4-dominio-y-fundamento-teórico)
   - [5. Estructura del repositorio](#5-estructura-del-repositorio)
   - [6. Metodología y flujo de trabajo](#6-metodología-y-flujo-de-trabajo)
@@ -30,17 +34,20 @@
   - [10. Schema de base de datos](#10-schema-de-base-de-datos)
     - [PostgreSQL (Prisma)](#postgresql-prisma)
     - [MongoDB (Mongoose)](#mongodb-mongoose)
-  - [11. Endpoints](#11-endpoints)
-  - [12. Despliegue (AWS Lambda + Serverless Framework)](#12-despliegue-aws-lambda--serverless-framework)
+  - [11. Diagramas de base de datos (ER)](#11-diagramas-de-base-de-datos-er)
+    - [PostgreSQL (Relacional)](#postgresql-relacional)
+    - [MongoDB (Documental)](#mongodb-documental)
+  - [12. Endpoints](#12-endpoints)
+  - [13. Despliegue (AWS Lambda + Serverless Framework)](#13-despliegue-aws-lambda--serverless-framework)
     - [Prerrequisitos AWS](#prerrequisitos-aws)
     - [Deploy completo](#deploy-completo)
     - [Re-deploy tras cambios](#re-deploy-tras-cambios)
     - [CI/CD (GitHub Actions)](#cicd-github-actions)
-  - [13. Costos](#13-costos)
-  - [14. Privacidad y cumplimiento NNA](#14-privacidad-y-cumplimiento-nna)
-  - [15. Roadmap](#15-roadmap)
-  - [16. Recursos](#16-recursos)
-  - [17. Licencia](#17-licencia)
+  - [14. Costos](#14-costos)
+  - [15. Privacidad y cumplimiento NNA](#15-privacidad-y-cumplimiento-nna)
+  - [16. Roadmap](#16-roadmap)
+  - [17. Recursos](#17-recursos)
+  - [18. Licencia](#18-licencia)
 
 ---
 
@@ -169,7 +176,50 @@ sequenceDiagram
 
 ---
 
-## 3. Stack tecnológico
+## 3. Autenticación
+
+El backend ahora expone un flujo completo de autenticación local para demo y Postman, además de mantener la validación de JWT de Cognito para tokens externos.
+
+### Endpoints de auth
+
+- `POST /auth/register` - crea un usuario local con email, password y rol.
+- `POST /auth/login` - autentica con email y password y devuelve `accessToken` + `refreshToken`.
+- `POST /auth/refresh` - renueva la sesión usando el refresh token.
+- `POST /auth/forgot-password` - genera un código temporal de recuperación y lo envía por email.
+- `POST /auth/confirm-forgot-password` - confirma el cambio de contraseña con el código recibido en el email.
+- `GET /auth/me` - devuelve el usuario autenticado actual.
+- `POST /auth/logout` - revoca la sesión incrementando la versión de token.
+
+### Demo local
+
+- Usuario teacher semilla: `teacher@innova.demo`
+- Usuarios student semilla: `student1@innova.demo` ... `student5@innova.demo`
+- Password demo compartida: `Innova123!`
+- Tokens locales firmados con HS256 y issuer `innova-local-auth`
+- Los tokens de Cognito siguen siendo compatibles para escenarios reales
+
+#### Password recovery workflow
+
+**Flujo estricto (SIN FALLBACK DEV):**
+
+1. `POST /auth/forgot-password` con email → Backend REQUIERE `RESEND_API_KEY` + `RESEND_FROM_EMAIL`
+2. Backend genera código temporal (15 minutos) y lo almacena hasheado en BD
+3. Backend envía email vía **Resend API** a la dirección proporcionada con link seguro: `https://superprofes.app/auth/reset?token=<urlsafe-base64>`
+4. Si Resend falla → `500 Internal Server Error` (no fallback implícito; email es crítico en producción)
+5. Usuario hace click en el link del email (sin exponer el código)
+6. Cliente extrae el token del URL y lo valida localmente
+7. Usuario introduce nueva contraseña vía `POST /auth/confirm-forgot-password` con {email, code, newPassword}
+8. Backend verifica código, resetea password, incrementa tokenVersion (invalida todas las sesiones activas)
+
+**Seguridad y confiabilidad:**
+
+- ✅ Código NUNCA viaja en HTTP response body (solo en email encriptado via TLS)
+- ✅ Email delivery via **Resend API** (transporte seguro + compliance SPF/DKIM/DMARC)
+- ✅ URL token es base64url (seguro para URLs y logs)
+- ✅ TokenVersion revocation invalida todas las sesiones previas
+- ✅ **NO existe modo dev sin email**: falla al arranque si `RESEND_API_KEY` o `RESEND_FROM_EMAIL` faltan
+
+## 4. Stack tecnológico
 
 | Capa | Tecnología | Versión | Razón |
 |------|-----------|---------|-------|
@@ -180,6 +230,7 @@ sequenceDiagram
 | DB documental | MongoDB Atlas M0 | 7 | Free tier, raw telemetry sin schema rígido |
 | Mensajería | AWS SQS (FIFO + Standard) | — | Durabilidad, ACK/NACK, desacopla LLM costoso |
 | Auth | AWS Cognito | — | JWT pools, sin servidor propio |
+| Email | Resend API | — | Transporte seguro, SPF/DKIM/DMARC, webhook delivery |
 | Cloud | AWS Lambda + API Gateway | — | Pay-per-request, zero idle cost |
 | Deploy | Serverless Framework | 3+ | Multi-function, container images por handler |
 | Tests | Jest + Supertest | — | Coverage ≥75%, E2E con DB real |
@@ -413,6 +464,9 @@ pnpm start:dev
 # 7. Verificar
 curl http://localhost:3000/health
 curl 'http://localhost:3000/skills'
+
+#8. Swagger UI
+go to → http://localhost:3000/docs
 ```
 
 ### Comandos frecuentes
@@ -492,7 +546,23 @@ DBML: `docs/mongodb.dbml`.
 
 ---
 
-## 11. Endpoints
+## 11. Diagramas de base de datos (ER)
+
+### PostgreSQL (Relacional)
+
+![PostgreSQL ER Diagram](docs/images/postgresql.png)
+
+**Descripción**: Almacena datos transaccionales operacionales (maestros de escuelas, estudiantes, docentes, intentos, mastery, alertas). Documentación completa en `docs/postgresql.dbml`.
+
+### MongoDB (Documental)
+
+![MongoDB Collections Diagram](docs/images/mongodb.png)
+
+**Descripción**: Almacena telemetría de intentos de estudiantes (`attempt_events` con keystroke events), auditoría de trabajos async de LLM (`llm_classification_jobs`), y auditoría de OCR (`ocr_jobs`). Documentación completa en `docs/mongodb.dbml`.
+
+---
+
+## 12. Endpoints
 
 | Método | Path | Descripción | Auth |
 |--------|------|-------------|------|
@@ -511,7 +581,7 @@ Swagger disponible en `http://localhost:3000/api` en modo dev.
 
 ---
 
-## 12. Despliegue (AWS Lambda + Serverless Framework)
+## 13. Despliegue (AWS Lambda + Serverless Framework)
 
 ### Prerrequisitos AWS
 
@@ -589,7 +659,7 @@ Secrets requeridos en GitHub:
 
 ---
 
-## 13. Costos
+## 14. Costos
 
 Proyección: **1000 alumnos activos, 22 días lectivos, ~30 intentos/alumno/día = 660K intentos/mes**
 
@@ -610,12 +680,24 @@ Costo por alumno/mes: **~$0.05**. Costo anual por colegio (300 alumnos): **~$162
 Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
 **Killswitches activos:**
+
 - CloudWatch billing alarm a **$80 LLM** → SSM `LLM_PAUSED=true` → Lambda LLM consumer verifica antes de llamar Anthropic → mensajes van a DLQ.
 - CloudWatch billing alarm a **$50 OCR** → SSM `OCR_PAUSED=true` → fallback a "carga digital obligatoria".
 
+### Alternativas de envío de correo (capas gratuitas permanentes, 2026)
+
+Para notificaciones (recuperación de contraseña, notificaciones de cuenta) las opciones con capas gratuitas activas en 2026 son:
+
+- Resend: 3,000 correos/mes (≈100/día). Muy simple de integrar y buen SDK.
+- Brevo (ex-Sendinblue): 300 correos/día. Buena entrega para volúmenes diarios moderados.
+- Mailjet: 6,000 correos/mes (≈200/día).
+- Amazon SES: opción de bajo coste si ya estás en AWS (comprueba límites de la cuenta y periodo gratuito aplicable).
+
+Recomendación: configurar `RESEND_API_KEY` y `RESEND_FROM_EMAIL` en Secrets para producción. El coste de emails es despreciable frente a LLM/OCR; usar Resend como único proveedor evita ramas de configuración innecesarias.
+
 ---
 
-## 14. Privacidad y cumplimiento NNA
+## 15. Privacidad y cumplimiento NNA
 
 - **COPPA + Ley 21.180 (Chile):** cero PII llega al LLM o al OCR provider. Solo `student_uuid` en mensajes SQS.
 - Imágenes de worksheets: filename = UUID aleatorio, purgadas a 30 días vía S3 lifecycle policy.
@@ -626,7 +708,7 @@ Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
 ---
 
-## 15. Roadmap
+## 16. Roadmap
 
 | Milestone | Fecha | Entregable |
 |-----------|-------|-----------|
@@ -640,7 +722,7 @@ Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
 ---
 
-## 16. Recursos
+## 17. Recursos
 
 - Especificaciones del dominio: `.github/instructions/`
 - Fundamento teórico: `.github/instructions/02-estado-del-arte.md`
@@ -654,6 +736,6 @@ Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
 
 ---
 
-## 17. Licencia
+## 18. Licencia
 
 Innova - Team 23. Internal GPL-3.0 License.
