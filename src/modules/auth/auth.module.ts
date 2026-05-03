@@ -9,6 +9,7 @@ import { UsersService } from '@modules/auth/users.service';
 import { AuthController } from '@modules/auth/auth.controller';
 import { AuthService } from '@modules/auth/auth.service';
 import { AuthTokenService } from '@modules/auth/auth-token.service';
+import { EmailService } from '@modules/auth/email.service';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { AuthTokenService } from '@modules/auth/auth-token.service';
     UsersService,
     AuthService,
     AuthTokenService,
+    EmailService,
     JwtStrategy,
     JwtAuthGuard,
     {
