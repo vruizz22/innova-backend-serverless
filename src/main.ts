@@ -9,16 +9,16 @@ import { ResponseInterceptor } from '@shared/http/response.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
-  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+  const corsOriginsValue = process.env.CORS_ORIGINS;
+  if (!corsOriginsValue) {
+    throw new Error('CORS_ORIGINS is required');
+  }
+
+  const corsOrigins = corsOriginsValue
     .split(',')
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
-  const publicAppUrl = process.env.PUBLIC_APP_URL;
   const publicApiUrl = process.env.PUBLIC_API_URL;
-
-  if (corsOrigins.length === 0 && publicAppUrl) {
-    corsOrigins.push(publicAppUrl);
-  }
 
   // Pino Logger
   app.useLogger(app.get(Logger));
