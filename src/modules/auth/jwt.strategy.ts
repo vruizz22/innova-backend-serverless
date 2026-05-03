@@ -64,7 +64,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: extractBearerToken,
       secretOrKeyProvider: (_request, rawJwtToken, done): void => {
-        const decodedToken = jwt.decode(rawJwtToken, { complete: true });
+        const decodedToken = jwt.decode(rawJwtToken as string, {
+          complete: true,
+        });
         const payload = decodedToken?.payload;
 
         if (
