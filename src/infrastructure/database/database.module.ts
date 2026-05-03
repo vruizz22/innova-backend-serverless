@@ -4,6 +4,22 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { z } from 'zod';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
+const EMAIL_ONLY_SCHEMA = z.string().email();
+const DISPLAY_NAME_EMAIL_PATTERN =
+  /^[^<>\r\n]+\s<([A-Za-z0-9_'+\-.]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})>$/;
+
+const resendFromEmailSchema = z
+  .string()
+  .refine(
+    (value) =>
+      EMAIL_ONLY_SCHEMA.safeParse(value).success ||
+      DISPLAY_NAME_EMAIL_PATTERN.test(value),
+    {
+      message:
+        'RESEND_FROM_EMAIL must be a valid email or the format "Display Name <email@domain>"',
+    },
+  );
+
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   MONGODB_URI: z.string().url().startsWith('mongodb'),
@@ -20,7 +36,7 @@ export const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string(),
-  RESEND_FROM_EMAIL: z.string().email(),
+  RESEND_FROM_EMAIL: resendFromEmailSchema,
   AWS_REGION: z.string().optional(),
   LOG_LEVEL: z.string().optional(),
 });
