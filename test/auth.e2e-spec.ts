@@ -3,43 +3,23 @@
 // Mock before importing AppModule which depends on JwtStrategy.
 jest.mock('jwks-rsa', () => ({
   passportJwtSecret: () => {
-    return {
-      cache: true,
-      rateLimit: true,
-      jwksRequestsPerMinute: 5,
-      jwksUri:
-        'https://cognito-idp.us-east-1.amazonaws.com/us-east-1_ikikne/.well-known/jwks.json',
+    return (
+      _request: unknown,
+      _rawJwtToken: unknown,
+      done: (error: unknown, secret?: string) => void,
+    ) => {
+      done(null, 'test-secret-key');
     };
-  },
-}));
-
-jest.mock('passport-jwt', () => ({
-  Strategy: class PassportJWTStrategy {
-    constructor(options: any) {
-      this.name = 'jwt';
-      this._userProperty = 'user';
-    }
-    name: string;
-    _userProperty: string;
-  },
-  ExtractJwt: {
-    fromAuthHeaderAsBearerToken: () => (req: any) => {
-      const auth = req.headers.authorization;
-      if (!auth) return null;
-      const parts = auth.split(' ');
-      if (parts.length !== 2 || parts[0] !== 'Bearer') return null;
-      return parts[1];
-    },
   },
 }));
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import type { Server } from 'node:http';
 import supertest from 'supertest';
 import * as jwt from 'jsonwebtoken';
-import { AppModule } from '@app/app.module';
+import { AppModule } from '@/app.module';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { Role } from '@modules/auth/roles.enum';
 
 /**
  * End-to-End tests for JWT authentication flow.
@@ -55,11 +35,12 @@ import { Role } from '@modules/auth/roles.enum';
  * For testing, we mock the payload structure and validate the flow.
  */
 describe('Auth E2E — JWT Bearer Token Flow', () => {
-  let app: INestApplication;
+  let app: INestApplication | undefined;
   let prisma: PrismaService;
+  let httpServer: Server | undefined;
 
-  const COGNITO_REGION = 'us-east-1';
-  const COGNITO_POOL_ID = 'us-east-1_ikikne';
+  const COGNITO_REGION = process.env.COGNITO_REGION ?? 'us-east-1';
+  const COGNITO_POOL_ID = process.env.COGNITO_USER_POOL_ID ?? '';
   const COGNITO_ISSUER = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_POOL_ID}`;
 
   // Test data
@@ -99,6 +80,35 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
     return jwt.sign(payload, 'test-secret-key', { algorithm: 'HS256' });
   };
 
+  const ensureUserWithCognitoSub = async (
+    email: string,
+    cognitoSub: string,
+  ): Promise<void> => {
+    const existingByEmail = await prisma.user.findUnique({ where: { email } });
+    if (existingByEmail) {
+      await prisma.user.update({
+        where: { id: existingByEmail.id },
+        data: { cognitoSub, tokenVersion: 0 },
+      });
+      return;
+    }
+
+    const existingBySub = await prisma.user.findUnique({
+      where: { cognitoSub },
+    });
+    if (existingBySub) {
+      await prisma.user.update({
+        where: { id: existingBySub.id },
+        data: { email, cognitoSub, tokenVersion: 0 },
+      });
+      return;
+    }
+
+    await prisma.user.create({
+      data: { email, cognitoSub },
+    });
+  };
+
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -115,10 +125,13 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
     await app.init();
 
     prisma = app.get<PrismaService>(PrismaService);
+    httpServer = app.getHttpServer() as Server;
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
   });
 
   beforeEach(async () => {
@@ -128,8 +141,8 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
   });
 
   describe('Public endpoints (no auth required)', () => {
-    it('GET /health should return 200 without Authorization header', async () => {
-      const response = await supertest(app.getHttpServer()).get('/health');
+    it('GET / should return 200 without Authorization header', async () => {
+      const response = await supertest(httpServer!).get('/');
       expect(response.status).toBe(200);
     });
   });
@@ -143,24 +156,18 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
       );
 
       // Ensure teacher exists in DB (use upsert to handle seed conflicts)
-      await prisma.user.upsert({
-        where: { email: demoUsers.teacher.email },
-        update: { cognitoSub: demoUsers.teacher.sub },
-        create: {
-          email: demoUsers.teacher.email,
-          cognitoSub: demoUsers.teacher.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+      );
 
-      // Test endpoint: GET /items (example protected route)
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      // Test endpoint: GET /auth/me (protected + stable contract)
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
 
-      // Should succeed (not 401 or 403)
-      expect([200, 400]).toContain(response.status);
-      // If 400, it's due to missing query params, not auth failure
-    });
+      expect(response.status).toBe(200);
+    };);
 
     it('should allow request with valid Bearer token for STUDENT', async () => {
       const token = generateMockJwt(
@@ -170,39 +177,35 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
       );
 
       // Ensure student exists in DB (use upsert to handle seed conflicts)
-      await prisma.user.upsert({
-        where: { email: demoUsers.student.email },
-        update: { cognitoSub: demoUsers.student.sub },
-        create: {
-          email: demoUsers.student.email,
-          cognitoSub: demoUsers.student.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.student.email,
+        demoUsers.student.sub,
+      );
 
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
 
-      expect([200, 400]).toContain(response.status);
+      expect(response.status).toBe(200);
     });
   });
 
   describe('Protected endpoints without Bearer token', () => {
     it('should return 401 Unauthorized when Authorization header is missing', async () => {
-      const response = await supertest(app.getHttpServer()).get('/items');
+      const response = await supertest(httpServer!).get('/auth/me');
       expect(response.status).toBe(401);
     });
 
     it('should return 401 Unauthorized when Authorization header format is invalid', async () => {
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', 'InvalidFormat');
       expect(response.status).toBe(401);
     });
 
     it('should return 401 Unauthorized when Bearer token is malformed', async () => {
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', 'Bearer malformed.token.here');
       expect(response.status).toBe(401);
     });
@@ -217,23 +220,17 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
       );
 
       // Seed teacher
-      await prisma.user.upsert({
-        where: { email: demoUsers.teacher.email },
-        update: {},
-        create: {
-          email: demoUsers.teacher.email,
-          cognitoSub: demoUsers.teacher.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+      );
 
       // Attempt protected endpoint
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
 
-      // Should not be 403 Forbidden (auth succeeded)
-      // May be 200 or 400 (validation), but not 403
-      expect(response.status).not.toBe(403);
+      expect(response.status).toBe(200);
     });
 
     it('STUDENT should not access TEACHER-only endpoints', async () => {
@@ -244,18 +241,14 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
       );
 
       // Seed student
-      await prisma.user.upsert({
-        where: { email: demoUsers.student.email },
-        update: {},
-        create: {
-          email: demoUsers.student.email,
-          cognitoSub: demoUsers.student.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.student.email,
+        demoUsers.student.sub,
+      );
 
       // Attempt a hypothetical TEACHER-only endpoint
       // (adjust based on actual route guards in the app)
-      const response = await supertest(app.getHttpServer())
+      await supertest(httpServer!)
         .get('/teacher/alerts')
         .set('Authorization', `Bearer ${token}`);
 
@@ -268,8 +261,10 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
   describe('User linking on first login', () => {
     it('should auto-link cognitoSub to existing user by email', async () => {
       // Create a user by email only (no cognitoSub)
-      const userByEmail = await prisma.user.create({
-        data: {
+      const userByEmail = await prisma.user.upsert({
+        where: { email: 'email-only@innova.demo' },
+        update: { cognitoSub: null },
+        create: {
           email: 'email-only@innova.demo',
           cognitoSub: null,
         },
@@ -283,8 +278,8 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
       );
 
       // Make authenticated request
-      await supertest(app.getHttpServer())
-        .get('/items')
+      await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
 
       // Verify that cognitoSub was linked
@@ -315,8 +310,8 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         algorithm: 'HS256',
       });
 
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer ${expiredToken}`);
 
       expect(response.status).toBe(401);
@@ -331,22 +326,17 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         demoUsers.teacher.groups,
       );
 
-      await prisma.user.upsert({
-        where: { email: demoUsers.teacher.email },
-        update: {},
-        create: {
-          email: demoUsers.teacher.email,
-          cognitoSub: demoUsers.teacher.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+      );
 
       // Note: supertest may normalize headers, so this test validates the strategy logic
-      const response = await supertest(app.getHttpServer())
-        .get('/items')
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
         .set('Authorization', `Bearer  ${token}`); // Extra space
 
-      // Should either accept (if header normalized) or reject (401)
-      expect([200, 400, 401]).toContain(response.status);
+      expect(response.status).toBe(401);
     });
   });
 
@@ -358,23 +348,18 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         demoUsers.teacher.groups,
       );
 
-      await prisma.user.upsert({
-        where: { email: demoUsers.teacher.email },
-        update: {},
-        create: {
-          email: demoUsers.teacher.email,
-          cognitoSub: demoUsers.teacher.sub,
-        },
-      });
+      await ensureUserWithCognitoSub(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+      );
 
       // Make 3 requests with the same token
       for (let i = 0; i < 3; i++) {
-        const response = await supertest(app.getHttpServer())
-          .get('/items')
+        const response = await supertest(httpServer!)
+          .get('/auth/me')
           .set('Authorization', `Bearer ${token}`);
 
-        // Should succeed consistently (not 401 or 403)
-        expect([200, 400]).toContain(response.status);
+        expect(response.status).toBe(200);
       }
     });
   });
