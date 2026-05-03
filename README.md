@@ -200,22 +200,24 @@ El backend ahora expone un flujo completo de autenticación local para demo y Po
 
 #### Password recovery workflow
 
-**Flujo seguro (PRODUCCIÓN):**
+**Flujo estricto (SIN FALLBACK DEV):**
 
-1. `POST /auth/forgot-password` con email
+1. `POST /auth/forgot-password` con email → Backend REQUIERE `RESEND_API_KEY` + `RESEND_FROM_EMAIL`
 2. Backend genera código temporal (15 minutos) y lo almacena hasheado en BD
-3. Backend envía email a la dirección proporcionada con link seguro: `https://superprofes.app/auth/reset?token=<urlsafe-base64>`
-4. Usuario hace click en el link (sin exponer el código)
-5. Cliente extrae el token del URL y lo valida localmente
-6. Usuario introduce nueva contraseña vía `POST /auth/confirm-forgot-password` con {email, code, newPassword}
-7. Backend verifica código, resetea password, incrementa tokenVersion (invalida sesiones activas)
+3. Backend envía email vía **Resend API** a la dirección proporcionada con link seguro: `https://superprofes.app/auth/reset?token=<urlsafe-base64>`
+4. Si Resend falla → `500 Internal Server Error` (no fallback implícito; email es crítico en producción)
+5. Usuario hace click en el link del email (sin exponer el código)
+6. Cliente extrae el token del URL y lo valida localmente
+7. Usuario introduce nueva contraseña vía `POST /auth/confirm-forgot-password` con {email, code, newPassword}
+8. Backend verifica código, resetea password, incrementa tokenVersion (invalida todas las sesiones activas)
 
-**Seguridad:**
+**Seguridad y confiabilidad:**
 
 - ✅ Código NUNCA viaja en HTTP response body (solo en email encriptado via TLS)
-- ✅ Email es transporte seguro vía Resend API en prod
-- ✅ URL token es base64url (seguro para URLs)
+- ✅ Email delivery via **Resend API** (transporte seguro + compliance SPF/DKIM/DMARC)
+- ✅ URL token es base64url (seguro para URLs y logs)
 - ✅ TokenVersion revocation invalida todas las sesiones previas
+- ✅ **NO existe modo dev sin email**: falla al arranque si `RESEND_API_KEY` o `RESEND_FROM_EMAIL` faltan
 
 ## 4. Stack tecnológico
 
@@ -228,6 +230,7 @@ El backend ahora expone un flujo completo de autenticación local para demo y Po
 | DB documental | MongoDB Atlas M0 | 7 | Free tier, raw telemetry sin schema rígido |
 | Mensajería | AWS SQS (FIFO + Standard) | — | Durabilidad, ACK/NACK, desacopla LLM costoso |
 | Auth | AWS Cognito | — | JWT pools, sin servidor propio |
+| Email | Resend API | — | Transporte seguro, SPF/DKIM/DMARC, webhook delivery |
 | Cloud | AWS Lambda + API Gateway | — | Pay-per-request, zero idle cost |
 | Deploy | Serverless Framework | 3+ | Multi-function, container images por handler |
 | Tests | Jest + Supertest | — | Coverage ≥75%, E2E con DB real |
