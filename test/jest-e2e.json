@@ -14,15 +14,13 @@
           "esModuleInterop": true,
           "skipLibCheck": true,
           "target": "ES2021"
-        },
-        "isolatedModules": true
+        }
       }
     ],
     "^.+\\.js$": [
       "ts-jest",
       {
-        "useESM": false,
-        "isolatedModules": true
+        "useESM": false
       }
     ]
   },
