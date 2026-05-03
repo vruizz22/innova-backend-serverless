@@ -4,7 +4,6 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     user: {
@@ -25,7 +24,6 @@ describe('UsersService', () => {
     }).compile();
 
     service = module.get<UsersService>(UsersService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
@@ -48,6 +46,7 @@ describe('UsersService', () => {
       expect(result).toEqual(expectedUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { cognitoSub },
+        select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
       });
     });
 
@@ -78,6 +77,7 @@ describe('UsersService', () => {
       expect(result).toEqual(expectedUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { email },
+        select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
       });
     });
 
@@ -110,6 +110,7 @@ describe('UsersService', () => {
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: userId },
         data: { cognitoSub },
+        select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
       });
     });
 
@@ -157,6 +158,7 @@ describe('UsersService', () => {
       expect(result).toEqual(expectedUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { cognitoSub: sub },
+        select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
       });
       // Should not query by email if found by sub
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledTimes(1);
@@ -191,6 +193,7 @@ describe('UsersService', () => {
       expect(mockPrismaService.user.update).toHaveBeenCalledWith({
         where: { id: 'user-123' },
         data: { cognitoSub: sub },
+        select: { id: true, email: true, cognitoSub: true, tokenVersion: true },
       });
     });
 
