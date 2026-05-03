@@ -162,7 +162,6 @@ export class AuthService {
     const resetLink = new URL('/auth/reset', appUrl);
     resetLink.searchParams.set('token', resetToken);
 
-    // Send email with reset link (NOT the code)
     const emailResult = await this.emailService.sendPasswordResetEmail(
       dto.email,
       resetLink.toString(),
@@ -177,10 +176,9 @@ export class AuthService {
       );
     }
 
-    // Response does NOT include the resetCode — it's sent only via email
     return {
       message:
-        'If an account exists with this email, a password reset link has been sent. Check your inbox and spam folder.',
+        'A password reset link has been sent to your email. Check your inbox and spam folder.',
     };
   }
 
