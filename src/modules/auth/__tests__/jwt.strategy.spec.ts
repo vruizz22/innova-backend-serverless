@@ -1,15 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '@modules/auth/users.service';
 import { Role } from '@modules/auth/roles.enum';
-import * as jwt from 'jsonwebtoken';
 
 // Mock jwks-rsa and passport-jwt to avoid ES module issues
 jest.mock('jwks-rsa', () => {
   return {
     passportJwtSecret: jest.fn(() => {
       // Return a mocked secret provider function
-      return (header: any, callback: any) => {
+      return (
+        _header: { kid?: string },
+        callback: (err: Error | null, secret?: string) => void,
+      ) => {
         callback(null, 'test-secret-key');
       };
     }),
@@ -23,27 +24,12 @@ jest.mock('passport-jwt', () => ({
 }));
 
 // Import after mocking to use mocked modules
-import {
-  JwtStrategy,
-  AuthenticatedPrincipal,
-} from '@modules/auth/jwt.strategy';
+import { JwtStrategy } from '@modules/auth/jwt.strategy';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
-  let usersService: UsersService;
   const mockUsersService = {
     findOrLinkByPayload: jest.fn(),
-  };
-
-  /**
-   * Generate a mock JWT signed with RS256 (HS256 fallback for local testing).
-   * In production, Cognito issues real RS256-signed tokens.
-   * For testing, we simulate the JWKS payload structure.
-   */
-  const generateMockJwt = (payload: Record<string, unknown>): string => {
-    // Use HS256 for local testing (not production-safe)
-    // Real Cognito uses RS256 with JWKS validation
-    return jwt.sign(payload, 'test-secret-key', { algorithm: 'HS256' });
   };
 
   beforeEach(async () => {
@@ -67,7 +53,6 @@ describe('JwtStrategy', () => {
     }).compile();
 
     strategy = module.get<JwtStrategy>(JwtStrategy);
-    usersService = module.get<UsersService>(UsersService);
   });
 
   afterEach(() => {
@@ -314,6 +299,7 @@ describe('JwtStrategy', () => {
           iss: payload.iss,
           exp,
           iat,
+          tokenVersion: 0,
         });
       });
     });
