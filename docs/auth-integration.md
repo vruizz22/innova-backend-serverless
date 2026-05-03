@@ -81,7 +81,7 @@ This is a **production-ready JWT-based authentication system** that integrates A
 |---------|---------|-------------------|
 | **User Registration** | Cognito user pool | Call Cognito `SignUp` API or use Cognito UI |
 | **Login** | Cognito `initiate-auth` | Call Cognito `AuthFlow` to get tokens |
-| **Password Reset** | Backend EmailService (SendGrid/resend) | POST `/auth/forgot-password` → email link + POST `/auth/confirm-forgot-password` |
+| **Password Reset** | Backend EmailService (Resend API) | POST `/auth/forgot-password` → email link + POST `/auth/confirm-forgot-password` |
 | **MFA/TOTP** | Cognito MFA | Implement TOTP challenge flow (optional in MVP) |
 | **Token Refresh** | Cognito refresh flow | Call Cognito `InitiateAuth` with refresh token |
 | **Logout** | Client-side (clear tokens) | Delete tokens from local storage; Cognito doesn't revoke access tokens |
