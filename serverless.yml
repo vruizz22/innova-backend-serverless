@@ -32,6 +32,10 @@ provider:
     NODE_ENV: ${self:provider.stage}
     DATABASE_URL: ${env:DATABASE_URL, ''}
     MONGODB_URI: ${env:MONGODB_URI, ''}
+    PUBLIC_APP_URL: ${env:PUBLIC_APP_URL, ''}
+    PUBLIC_API_URL: ${env:PUBLIC_API_URL, ''}
+    CORS_ORIGINS: ${env:CORS_ORIGINS, ''}
+
     COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID, ''}
     COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
     COGNITO_REGION: ${env:COGNITO_REGION, ''}
@@ -40,6 +44,9 @@ provider:
     SQS_OCR_QUEUE_URL: {"Ref": "OcrQueue"}
     ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
     GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
+    RESEND_API_KEY: ${env:RESEND_API_KEY, ''}
+    RESEND_FROM_EMAIL: ${env:RESEND_FROM_EMAIL, ''}
+
     LOG_LEVEL: ${env:LOG_LEVEL, 'info'}
 
 custom:
