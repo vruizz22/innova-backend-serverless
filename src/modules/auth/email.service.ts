@@ -1,91 +1,79 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
-
-/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access */
+import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
 
 /**
  * EmailService — Sends password reset emails with secure tokens.
  *
- * Production: Uses RESEND via nodemailer SMTP.
- * Local dev: Uses ethereal (demo inbox) if RESEND_API_KEY not configured.
+ * Production: Uses the Resend API.
+ * Local dev: Returns a controlled error if Resend is not configured.
  */
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  // transporter may be undefined when email delivery is not configured (local/dev)
-  private transporter: nodemailer.Transporter | undefined = undefined;
+  private resendClient: Resend | undefined = undefined;
+  private fromEmail: string | undefined = undefined;
 
-  constructor() {
-    this.initializeTransporter();
+  constructor(private readonly configService: ConfigService) {
+    this.initializeClient();
   }
 
-  private initializeTransporter(): void {
-    if (process.env.RESEND_API_KEY) {
-      // Production: Resend
-      // nodemailer.createTransport returns a value typed as any in some versions;
-      // cast to Transporter to satisfy TypeScript while keeping runtime behavior.
+  private initializeClient(): void {
+    const apiKey = this.configService.get<string>('RESEND_API_KEY');
+    const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL');
+    const nodeEnv = this.configService.get<string>('NODE_ENV') ?? 'development';
 
-      // createTransport may be typed as `any` by some nodemailer versions; assert once and silence the specific ESLint rule here.
-
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp.RESEND.net',
-        port: 587,
-        secure: false,
-        auth: {
-          user: 'apikey',
-          pass: process.env.RESEND_API_KEY,
-        },
-      }) as unknown as nodemailer.Transporter;
-      this.logger.log('✅ RESEND SMTP configured for production');
-    } else {
-      // Local dev: Ethereal (demo/testing only)
-      this.logger.warn(
-        '⚠️  RESEND_API_KEY not configured. Using Ethereal (demo mode). Password reset emails will NOT be sent.',
-      );
-      // leave transporter undefined so sendPasswordResetEmail can detect missing config
+    if (apiKey && fromEmail) {
+      this.resendClient = new Resend(apiKey);
+      this.fromEmail = fromEmail;
+      this.logger.log('✅ Resend API configured for email delivery');
+      return;
     }
+
+    if (nodeEnv === 'production') {
+      throw new Error(
+        'RESEND_API_KEY and RESEND_FROM_EMAIL are required in production',
+      );
+    }
+
+    this.logger.warn(
+      '⚠️  Resend is not configured. Password reset emails will not be sent in this environment.',
+    );
   }
 
-  /**
-   * Send password reset email with secure link.
-   * @param toEmail - Recipient email
-   * @param resetToken - Base64-encoded or hashed token (send via link, not inline)
-   * @param resetLink - Full HTTPS link to password reset page (e.g., https://app.innova.io/auth/reset?token=...)
-   */
   async sendPasswordResetEmail(
     toEmail: string,
     resetLink: string,
   ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-    if (!this.transporter) {
+    if (!this.resendClient || !this.fromEmail) {
       this.logger.warn(
-        `⚠️  Email service not configured. In production, password reset email would be sent to ${toEmail}`,
+        `⚠️  Resend is not configured. Password reset email would have been sent to ${toEmail}`,
       );
       return {
         success: false,
         error:
-          'Email service not configured. Configure RESEND_API_KEY to enable password resets.',
+          'Email service not configured. Configure RESEND_API_KEY and RESEND_FROM_EMAIL to enable password resets.',
       };
     }
 
     try {
-      const mailOptions: nodemailer.SendMailOptions = {
-        from: process.env.EMAIL_FROM || 'innova.grupo23@gmail.com',
+      const { data, error } = await this.resendClient.emails.send({
+        from: this.fromEmail,
         to: toEmail,
         subject: 'Recupera tu contraseña — SuperProfes',
         html: this.buildPasswordResetEmailHTML(resetLink),
         text: this.buildPasswordResetEmailText(resetLink),
-      };
+      });
 
-      const result: nodemailer.SentMessageInfo =
-        (await this.transporter.sendMail(
-          mailOptions,
-        )) as unknown as nodemailer.SentMessageInfo;
+      if (error) {
+        this.logger.error(
+          `❌ Failed to send password reset email to ${toEmail}: ${error.message}`,
+        );
+        return { success: false, error: error.message };
+      }
+
       this.logger.log(`✅ Password reset email sent to ${toEmail}`);
-      const messageId =
-        typeof result.messageId !== 'undefined'
-          ? String(result.messageId)
-          : undefined;
-      return { success: true, messageId };
+      return { success: true, messageId: data?.id };
     } catch (error) {
       this.logger.error(
         `❌ Failed to send password reset email to ${toEmail}:`,
@@ -102,6 +90,8 @@ export class EmailService {
    * Build HTML email template with branding.
    */
   private buildPasswordResetEmailHTML(resetLink: string): string {
+    const resetOrigin = new URL(resetLink).origin;
+
     return `
 <!DOCTYPE html>
 <html>
@@ -146,7 +136,7 @@ export class EmailService {
       
       <div class="footer">
         <p>© 2026 SuperProfes. Educación matemática adaptativa.</p>
-        <p><a href="https://superprofes.app" style="color: #1e40af; text-decoration: none;">superprofes.app</a></p>
+        <p><a href="${resetOrigin}" style="color: #1e40af; text-decoration: none;">${resetOrigin}</a></p>
       </div>
     </div>
   </body>
