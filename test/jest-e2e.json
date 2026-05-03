@@ -4,9 +4,41 @@
   "testEnvironment": "node",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
-    "^.+\\.(t|j)s$": "ts-jest"
+    "^.+\\.(t|j)s$": [
+      "ts-jest",
+      {
+        "tsconfig": {
+          "module": "commonjs",
+          "moduleResolution": "nodenext",
+          "resolvePackageJsonExports": false,
+          "esModuleInterop": true,
+          "skipLibCheck": true,
+          "target": "ES2021"
+        }
+      }
+    ],
+    "^.+\\.js$": [
+      "ts-jest",
+      {
+        "useESM": false
+      }
+    ]
   },
+  "extensionsToTreatAsEsm": [],
+  "transformIgnorePatterns": [
+    "node_modules/(?!(jwks-rsa|jose|@panva)/)"
+  ],
   "moduleNameMapper": {
-    "^@/(.*)$": "<rootDir>/../src/$1"
-  }
+    "^@/(.*)$": "<rootDir>/../src/$1",
+    "^@app/(.*)$": "<rootDir>/../src/$1",
+    "^@modules/(.*)$": "<rootDir>/../src/modules/$1",
+    "^@infrastructure/(.*)$": "<rootDir>/../src/infrastructure/$1",
+    "^@adapters/(.*)$": "<rootDir>/../src/adapters/$1",
+    "^@shared/(.*)$": "<rootDir>/../src/shared/$1"
+  },
+  "collectCoverageFrom": [
+    "../src/**/*.ts",
+    "!../src/**/*.module.ts",
+    "!../src/**/index.ts"
+  ]
 }

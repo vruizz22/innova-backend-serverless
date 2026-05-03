@@ -3,10 +3,26 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '@/app.module';
 
+jest.mock('jwks-rsa', () => ({
+  passportJwtSecret: () => {
+    return (
+      _request: unknown,
+      _rawJwtToken: unknown,
+      done: (error: unknown, secret?: string) => void,
+    ) => {
+      done(null, 'test-secret-key');
+    };
+  },
+}));
+
 jest.mock('mongoose', () => {
+  const schemaMock = {
+    index: jest.fn(),
+  };
+
   return {
     connect: jest.fn().mockResolvedValue({}),
-    Schema: jest.fn(() => {}),
+    Schema: jest.fn(() => schemaMock),
     model: jest.fn(() => ({
       insertMany: jest.fn(),
     })),
