@@ -128,6 +128,4 @@ export class AttemptEvent {
 export const AttemptEventSchema = SchemaFactory.createForClass(AttemptEvent);
 
 // Create indexes
-AttemptEventSchema.index({ attempt_id: 1 });
-AttemptEventSchema.index({ student_id: 1 });
 AttemptEventSchema.index({ createdAt: 1, archived_to_s3_at: 1 });

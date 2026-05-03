@@ -143,7 +143,3 @@ export class OCRJob {
 export const OCRJobSchema = SchemaFactory.createForClass(OCRJob);
 
 // Create indexes for efficient querying
-OCRJobSchema.index({ student_id: 1 });
-OCRJobSchema.index({ status: 1 });
-OCRJobSchema.index({ upload_id: 1 });
-OCRJobSchema.index({ created_at: 1 });

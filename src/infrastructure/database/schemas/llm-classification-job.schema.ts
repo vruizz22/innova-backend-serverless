@@ -133,6 +133,3 @@ export const LLMClassificationJobSchema =
   SchemaFactory.createForClass(LLMClassificationJob);
 
 // Create indexes for efficient querying
-LLMClassificationJobSchema.index({ status: 1 });
-LLMClassificationJobSchema.index({ created_at: 1 });
-LLMClassificationJobSchema.index({ trace_id: 1 });
