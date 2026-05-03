@@ -1,6 +1,7 @@
 import {
-  ConflictException,
   Injectable,
+  InternalServerErrorException,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -10,11 +11,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { promisify } from 'node:util';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import {
   AuthTokenService,
   LocalAuthSession,
 } from '@modules/auth/auth-token.service';
+import { EmailService } from '@modules/auth/email.service';
 import { Role } from '@modules/auth/roles.enum';
 import type { AuthenticatedPrincipal } from '@modules/auth/jwt.strategy';
 import { LoginDto } from '@modules/auth/dto/login.dto';
@@ -48,9 +51,13 @@ export interface AuthSessionResponse extends LocalAuthSession {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tokenService: AuthTokenService,
+    private readonly emailService: EmailService,
+    private readonly configService: ConfigService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthSessionResponse> {
@@ -127,8 +134,6 @@ export class AuthService {
 
   async forgotPassword(dto: ForgotPasswordDto): Promise<{
     message: string;
-    resetCode: string;
-    expiresAt: string;
   }> {
     const user = await this.findLocalUserOrThrow(dto.email);
     const resetCode = this.generateResetCode();
@@ -143,10 +148,39 @@ export class AuthService {
       },
     });
 
+    // Encode resetCode as URL-safe token for email link
+    const resetToken = Buffer.from(
+      JSON.stringify({ email: dto.email, code: resetCode }),
+    ).toString('base64url');
+    const appUrl = this.configService.get<string>('PUBLIC_APP_URL');
+    if (!appUrl) {
+      throw new Error(
+        'PUBLIC_APP_URL is required to generate password reset links',
+      );
+    }
+
+    const resetLink = new URL('/auth/reset', appUrl);
+    resetLink.searchParams.set('token', resetToken);
+
+    // Send email with reset link (NOT the code)
+    const emailResult = await this.emailService.sendPasswordResetEmail(
+      dto.email,
+      resetLink.toString(),
+    );
+
+    if (!emailResult.success) {
+      this.logger.error(
+        `Password reset email failed for ${dto.email}: ${emailResult.error}`,
+      );
+      throw new InternalServerErrorException(
+        'Unable to send password reset email',
+      );
+    }
+
+    // Response does NOT include the resetCode — it's sent only via email
     return {
-      message: 'Password recovery code generated for demo flow',
-      resetCode,
-      expiresAt: expiresAt.toISOString(),
+      message:
+        'If an account exists with this email, a password reset link has been sent. Check your inbox and spam folder.',
     };
   }
 
@@ -217,13 +251,13 @@ export class AuthService {
     return { message: 'Session revoked successfully' };
   }
 
-  private async buildSessionResponse(
+  private buildSessionResponse(
     sub: string,
     email: string,
     role: Role,
     tokenVersion: number,
     cognitoSub: string | null,
-  ): Promise<AuthSessionResponse> {
+  ): AuthSessionResponse {
     const session = this.tokenService.buildSession({
       sub,
       email,
