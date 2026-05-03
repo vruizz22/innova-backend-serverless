@@ -9,13 +9,23 @@ import { ResponseInterceptor } from '@shared/http/response.interceptor';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const corsOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+  const publicAppUrl = process.env.PUBLIC_APP_URL;
+  const publicApiUrl = process.env.PUBLIC_API_URL;
+
+  if (corsOrigins.length === 0 && publicAppUrl) {
+    corsOrigins.push(publicAppUrl);
+  }
 
   // Pino Logger
   app.useLogger(app.get(Logger));
 
   // Global Config (FaztWeb Directive Setup)
   app.enableCors({
-    origin: ['http://localhost:3000', 'https://superprofes.app'],
+    origin: corsOrigins,
     credentials: true,
   });
 
@@ -34,14 +44,17 @@ async function bootstrap() {
   );
 
   // Swagger Setup
-  const config = new DocumentBuilder()
+  const documentBuilder = new DocumentBuilder()
     .setTitle('Innova Serverless Core API')
     .setDescription('EdTech Platform Backend')
     .setVersion('1.0')
-    .addBearerAuth()
-    .build();
+    .addBearerAuth();
 
-  const document = SwaggerModule.createDocument(app, config);
+  if (publicApiUrl) {
+    documentBuilder.addServer(publicApiUrl);
+  }
+
+  const document = SwaggerModule.createDocument(app, documentBuilder.build());
   SwaggerModule.setup('docs', app, document, {
     jsonDocumentUrl: 'docs/openapi.json',
   });
