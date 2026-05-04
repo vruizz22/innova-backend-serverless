@@ -167,7 +167,7 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
-    };);
+    });
 
     it('should allow request with valid Bearer token for STUDENT', async () => {
       const token = generateMockJwt(
