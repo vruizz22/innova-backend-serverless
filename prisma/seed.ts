@@ -107,6 +107,7 @@ async function main() {
   // Demo Cognito subjects (deterministic UUIDs for testing)
   const DEMO_COGNITO_SUBS = {
     teacher: 'us-east-1:00000000-0000-0000-0000-000000000001',
+    parent: 'us-east-1:00000000-0000-0000-0000-000000000021',
     student1: 'us-east-1:00000000-0000-0000-0000-000000000011',
     student2: 'us-east-1:00000000-0000-0000-0000-000000000012',
     student3: 'us-east-1:00000000-0000-0000-0000-000000000013',
@@ -149,9 +150,9 @@ async function main() {
   for (let i = 0; i < studentData.length; i++) {
     const { email, cognitoSub } = studentData[i];
     const sUser = await prisma.user.upsert({
-      where: { email },
+      where: { cognitoSub },
       update: {
-        cognitoSub,
+        email,
         authRole: 'student',
         passwordHash: hashPassword(DEMO_PASSWORD),
       },
@@ -173,6 +174,38 @@ async function main() {
     });
   }
   console.log('✅ 5 Students created with cognitoSub linking');
+
+  const parentUser = await prisma.user.upsert({
+    where: { email: 'parent@innova.demo' },
+    update: {
+      cognitoSub: DEMO_COGNITO_SUBS.parent,
+      authRole: 'parent',
+      passwordHash: hashPassword(DEMO_PASSWORD),
+    },
+    create: {
+      email: 'parent@innova.demo',
+      cognitoSub: DEMO_COGNITO_SUBS.parent,
+      authRole: 'parent',
+      passwordHash: hashPassword(DEMO_PASSWORD),
+    },
+  });
+
+  const parent = await prisma.parent.upsert({
+    where: { id: 'seed-parent-001' },
+    update: {},
+    create: { id: 'seed-parent-001', userId: parentUser.id },
+  });
+
+  await prisma.parentLink.upsert({
+    where: { id: 'seed-parent-link-001' },
+    update: {},
+    create: {
+      id: 'seed-parent-link-001',
+      parentId: parent.id,
+      studentId: 'seed-student-001',
+    },
+  });
+  console.log(`✅ Parent: ${parent.id} linked to seed-student-001`);
 
   const skill = await prisma.skill.upsert({
     where: { key: 'subtraction_borrow' },
@@ -222,6 +255,7 @@ async function main() {
     `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
   );
   console.log(`   teacher@innova.demo → ${DEMO_COGNITO_SUBS.teacher}`);
+  console.log(`   parent@innova.demo → ${DEMO_COGNITO_SUBS.parent}`);
   console.log(
     `\n💡 To add real Cognito groups, run AWS CLI commands (after user signup):`,
   );
@@ -230,6 +264,9 @@ async function main() {
   );
   console.log(
     `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username student1@innova.demo --group-name STUDENT`,
+  );
+  console.log(
+    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username parent@innova.demo --group-name PARENT`,
   );
   console.log(
     `\n📝 Demo users are seeded with hardcoded cognitoSub for local testing.`,
