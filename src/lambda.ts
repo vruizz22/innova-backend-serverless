@@ -43,7 +43,10 @@ export const handler: Handler = async (
 ) => {
   // If bootstrap previously failed, return a structured 500 instead of crashing
   if (bootstrapError) {
-    console.error('[Lambda] Bootstrap previously failed:', bootstrapError.message);
+    console.error(
+      '[Lambda] Bootstrap previously failed:',
+      bootstrapError.message,
+    );
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'application/json' },
