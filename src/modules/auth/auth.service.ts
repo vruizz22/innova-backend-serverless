@@ -328,6 +328,7 @@ export class AuthService {
   private resolveRole(authRole: string | null): Role {
     if (authRole === Role.ADMIN) return Role.ADMIN;
     if (authRole === Role.TEACHER) return Role.TEACHER;
+    if (authRole === Role.PARENT) return Role.PARENT;
     return Role.STUDENT;
   }
 
