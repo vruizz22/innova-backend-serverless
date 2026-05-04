@@ -108,6 +108,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role = Role.TEACHER;
       if (g === 'student' || g === 'students' || g === 'STUDENT')
         role = Role.STUDENT;
+      if (g === 'parent' || g === 'parents' || g === 'PARENT')
+        role = Role.PARENT;
       if (g === 'admin' || g === 'admins' || g === 'ADMIN') role = Role.ADMIN;
     }
 
