@@ -10,6 +10,7 @@ import { MasteryModule } from '@modules/mastery/mastery.module';
 import { AlertsModule } from '@modules/alerts/alerts.module';
 import { PracticeModule } from '@modules/practice/practice.module';
 import { AuthModule } from '@modules/auth/auth.module';
+import { ClassroomsModule } from '@modules/classrooms/classrooms.module';
 import { TelemetryModule } from '@infrastructure/telemetry.module';
 import { TraceIdMiddleware } from '@shared/http/trace-id.middleware';
 
@@ -27,6 +28,7 @@ import { TraceIdMiddleware } from '@shared/http/trace-id.middleware';
     AlertsModule,
     PracticeModule,
     AuthModule,
+    ClassroomsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
