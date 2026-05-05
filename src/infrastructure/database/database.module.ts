@@ -26,6 +26,7 @@ export const envSchema = z.object({
   PORT: z.string().optional().default('3000'),
   PUBLIC_APP_URL: z.string().url(),
   PUBLIC_API_URL: z.string().url(),
+  PUBLIC_PRACTICE_URL: z.string().url(),
   CORS_ORIGINS: z.string(),
   COGNITO_USER_POOL_ID: z.string(),
   COGNITO_CLIENT_ID: z.string(),
