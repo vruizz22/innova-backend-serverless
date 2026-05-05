@@ -522,8 +522,10 @@ Ver spec completo: `docs/prompt/01-innova-backend-serverless-testing.md`
 ```
 School            — id, name, region
 Classroom         — id, schoolId, name, gradeLevel
-Student           — id, cognitoSub, classroomId
-Teacher           — id, cognitoSub, classrooms[]
+TeacherClassroom  — teacherId, classroomId
+ClassroomInvite   — id, code, classroomId, createdBy, expiresAt?, maxUses?, useCount
+Student           — id, userId, classroomId
+Teacher           — id, userId, classrooms[]
 Skill             — id, topic (unique), gradeLevel, prerequisites[]
 SkillBKTParams    — skillId (PK), pL0, pTransit, pSlip, pGuess, calibratedAt
 Item              — id, skillId, content (Json), irtA, irtB, attemptCount
