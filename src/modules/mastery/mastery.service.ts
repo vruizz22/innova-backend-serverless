@@ -59,15 +59,16 @@ function contentString(value: unknown, key: string): string {
 
 function finalExpression(rawSteps: unknown): string {
   if (!Array.isArray(rawSteps)) return '';
-  const finalStep = [...rawSteps]
+  const items: unknown[] = rawSteps;
+  const finalStep: unknown = [...items]
     .reverse()
     .find(
       (step) =>
-        step &&
+        step !== null &&
         typeof step === 'object' &&
         (step as { isFinal?: unknown }).isFinal === true,
     );
-  const step = finalStep ?? rawSteps.at(-1);
+  const step: unknown = finalStep ?? items.at(-1);
   if (!step || typeof step !== 'object') return '';
   const expression = (step as { expression?: unknown }).expression;
   return typeof expression === 'string' ? expression : '';
