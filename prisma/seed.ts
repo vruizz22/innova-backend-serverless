@@ -112,7 +112,7 @@ const MASTERY_DATA: Array<Record<string, number>> = [
   // student4 — medium across the board
   {
     subtraction_borrow: 0.53,
-    addition_carry: 0.60,
+    addition_carry: 0.6,
     multiplication_table: 0.48,
     long_division: 0.55,
   },
@@ -178,14 +178,27 @@ async function main() {
 
   // Link teacher to classroom
   await prisma.teacherClassroom.upsert({
-    where: { teacherId_classroomId: { teacherId: teacher.id, classroomId: classroom.id } },
+    where: {
+      teacherId_classroomId: {
+        teacherId: teacher.id,
+        classroomId: classroom.id,
+      },
+    },
     update: {},
     create: { teacherId: teacher.id, classroomId: classroom.id },
   });
 
-  console.log(`✅ Teacher: ${teacher.id} linked to classroom "${classroom.name}"`);
+  console.log(
+    `✅ Teacher: ${teacher.id} linked to classroom "${classroom.name}"`,
+  );
 
-  const studentNames = ['Diego Vega', 'Valentina Reyes', 'Matías Torres', 'Camila Soto', 'Benjamín Muñoz'];
+  const studentNames = [
+    'Diego Vega',
+    'Valentina Reyes',
+    'Matías Torres',
+    'Camila Soto',
+    'Benjamín Muñoz',
+  ];
   const studentData = [
     { email: 'student1@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student1 },
     { email: 'student2@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student2 },
@@ -221,7 +234,9 @@ async function main() {
       },
     });
   }
-  console.log(`✅ 5 Students (${studentNames.join(', ')}) created in classroom`);
+  console.log(
+    `✅ 5 Students (${studentNames.join(', ')}) created in classroom`,
+  );
 
   const parentUser = await prisma.user.upsert({
     where: { email: 'parent@innova.demo' },
@@ -257,10 +272,26 @@ async function main() {
 
   // === Skills ===
   const skillDefs = [
-    { key: 'subtraction_borrow', name: 'Sustracción con préstamo', description: 'Resta con reagrupación para 4° básico' },
-    { key: 'addition_carry', name: 'Suma con llevada', description: 'Suma con reagrupación de decenas' },
-    { key: 'multiplication_table', name: 'Tablas de multiplicar', description: 'Multiplicación básica 1–10' },
-    { key: 'long_division', name: 'División larga', description: 'División con cociente de 2+ cifras' },
+    {
+      key: 'subtraction_borrow',
+      name: 'Sustracción con préstamo',
+      description: 'Resta con reagrupación para 4° básico',
+    },
+    {
+      key: 'addition_carry',
+      name: 'Suma con llevada',
+      description: 'Suma con reagrupación de decenas',
+    },
+    {
+      key: 'multiplication_table',
+      name: 'Tablas de multiplicar',
+      description: 'Multiplicación básica 1–10',
+    },
+    {
+      key: 'long_division',
+      name: 'División larga',
+      description: 'División con cociente de 2+ cifras',
+    },
   ];
 
   const skillMap: Record<string, string> = {};
@@ -288,7 +319,7 @@ async function main() {
       },
     });
   }
-  console.log(`✅ 4 Skills created: ${skillDefs.map(s => s.key).join(', ')}`);
+  console.log(`✅ 4 Skills created: ${skillDefs.map((s) => s.key).join(', ')}`);
 
   // === Items for subtraction_borrow skill ===
   await prisma.item.deleteMany({
@@ -343,16 +374,54 @@ async function main() {
       });
     }
   }
-  console.log(`✅ StudentSkillMastery records created for 5 students × 4 skills`);
+  console.log(
+    `✅ StudentSkillMastery records created for 5 students × 4 skills`,
+  );
 
   // === Sample Attempts for Diego Vega (student1) — subtraction_borrow ===
   const attemptDefs = [
-    { id: 'seed-attempt-001', studentId: 'seed-student-001', itemId: 'seed-item-borrow_omitted-1', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
-    { id: 'seed-attempt-002', studentId: 'seed-student-001', itemId: 'seed-item-borrow_omitted-2', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
-    { id: 'seed-attempt-003', studentId: 'seed-student-001', itemId: 'seed-item-basic_fact_error-1', isCorrect: true, errorType: undefined },
-    { id: 'seed-attempt-004', studentId: 'seed-student-002', itemId: 'seed-item-borrow_omitted-1', isCorrect: true, errorType: undefined },
-    { id: 'seed-attempt-005', studentId: 'seed-student-002', itemId: 'seed-item-borrow_from_zero_error-1', isCorrect: true, errorType: undefined },
-    { id: 'seed-attempt-006', studentId: 'seed-student-005', itemId: 'seed-item-borrow_omitted-3', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
+    {
+      id: 'seed-attempt-001',
+      studentId: 'seed-student-001',
+      itemId: 'seed-item-borrow_omitted-1',
+      isCorrect: false,
+      errorType: 'BORROW_OMITTED' as const,
+    },
+    {
+      id: 'seed-attempt-002',
+      studentId: 'seed-student-001',
+      itemId: 'seed-item-borrow_omitted-2',
+      isCorrect: false,
+      errorType: 'BORROW_OMITTED' as const,
+    },
+    {
+      id: 'seed-attempt-003',
+      studentId: 'seed-student-001',
+      itemId: 'seed-item-basic_fact_error-1',
+      isCorrect: true,
+      errorType: undefined,
+    },
+    {
+      id: 'seed-attempt-004',
+      studentId: 'seed-student-002',
+      itemId: 'seed-item-borrow_omitted-1',
+      isCorrect: true,
+      errorType: undefined,
+    },
+    {
+      id: 'seed-attempt-005',
+      studentId: 'seed-student-002',
+      itemId: 'seed-item-borrow_from_zero_error-1',
+      isCorrect: true,
+      errorType: undefined,
+    },
+    {
+      id: 'seed-attempt-006',
+      studentId: 'seed-student-005',
+      itemId: 'seed-item-borrow_omitted-3',
+      isCorrect: false,
+      errorType: 'BORROW_OMITTED' as const,
+    },
   ];
 
   for (const def of attemptDefs) {
@@ -379,7 +448,8 @@ async function main() {
       teacherId: teacher.id,
       classroomId: classroom.id,
       studentId: 'seed-student-001',
-      message: 'Diego Vega lleva 3 errores seguidos en subtraction_borrow — intervención recomendada.',
+      message:
+        'Diego Vega lleva 3 errores seguidos en subtraction_borrow — intervención recomendada.',
       resolved: false,
     },
     {
@@ -387,7 +457,8 @@ async function main() {
       teacherId: teacher.id,
       classroomId: classroom.id,
       studentId: null,
-      message: 'Error BORROW_OMITTED detectado en 3 alumnos — patrón común en la clase.',
+      message:
+        'Error BORROW_OMITTED detectado en 3 alumnos — patrón común en la clase.',
       resolved: false,
     },
     {
@@ -395,7 +466,8 @@ async function main() {
       teacherId: teacher.id,
       classroomId: classroom.id,
       studentId: 'seed-student-005',
-      message: 'Benjamín Muñoz: dominio de long_division bajo 0.30 — en riesgo.',
+      message:
+        'Benjamín Muñoz: dominio de long_division bajo 0.30 — en riesgo.',
       resolved: false,
     },
   ];
@@ -421,8 +493,10 @@ async function main() {
   );
   console.log(`   Teacher: teacher@innova.demo / Innova123!`);
   console.log(`   Students: student1–5@innova.demo / Innova123!`);
-  console.log(`   Parent: parent@innova.demo / Innova123! (linked to Diego Vega)`);
-  console.log(`   Skills: ${skillDefs.map(s => s.key).join(', ')}`);
+  console.log(
+    `   Parent: parent@innova.demo / Innova123! (linked to Diego Vega)`,
+  );
+  console.log(`   Skills: ${skillDefs.map((s) => s.key).join(', ')}`);
   console.log(`   Classroom: ${classroom.name} (${classroom.id})`);
   console.log(
     `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
