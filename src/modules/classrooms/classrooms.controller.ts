@@ -56,8 +56,7 @@ export class ClassroomsController {
   @ApiParam({ name: 'id' })
   invite(@Request() req: AuthRequest, @Param('id') id: string) {
     const userId = req.user.prismaUser?.id ?? req.user.sub;
-    const practiceBaseUrl =
-      process.env['PRACTICE_BASE_URL'] ?? 'https://practice.superprofes.app';
+    const practiceBaseUrl = process.env['PUBLIC_PRACTICE_URL']!;
     return this.classroomsService.createInvite(id, userId, practiceBaseUrl);
   }
 
