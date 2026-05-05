@@ -85,6 +85,46 @@ function hashPassword(password: string): string {
   return `${salt}.${derivedKey.toString('hex')}`;
 }
 
+// Mastery data per student×skill (p_known values)
+// student index (0-4) × skill key → p_known
+const MASTERY_DATA: Array<Record<string, number>> = [
+  // student1 — Diego Vega — weak in subtraction, medium in others
+  {
+    subtraction_borrow: 0.22,
+    addition_carry: 0.55,
+    multiplication_table: 0.61,
+    long_division: 0.38,
+  },
+  // student2 — strong overall
+  {
+    subtraction_borrow: 0.82,
+    addition_carry: 0.88,
+    multiplication_table: 0.79,
+    long_division: 0.74,
+  },
+  // student3 — mixed
+  {
+    subtraction_borrow: 0.68,
+    addition_carry: 0.45,
+    multiplication_table: 0.72,
+    long_division: 0.31,
+  },
+  // student4 — medium across the board
+  {
+    subtraction_borrow: 0.53,
+    addition_carry: 0.60,
+    multiplication_table: 0.48,
+    long_division: 0.55,
+  },
+  // student5 — weak in subtraction and division
+  {
+    subtraction_borrow: 0.35,
+    addition_carry: 0.71,
+    multiplication_table: 0.65,
+    long_division: 0.29,
+  },
+];
+
 async function main() {
   console.log('🌱 Starting seed...');
 
@@ -96,10 +136,10 @@ async function main() {
 
   const classroom = await prisma.classroom.upsert({
     where: { id: 'seed-classroom-001' },
-    update: {},
+    update: { name: '4° A · Matemáticas' },
     create: {
       id: 'seed-classroom-001',
-      name: '3° Básico A',
+      name: '4° A · Matemáticas',
       schoolId: school.id,
     },
   });
@@ -135,10 +175,17 @@ async function main() {
     update: {},
     create: { id: 'seed-teacher-001', userId: teacherUser.id },
   });
-  console.log(
-    `✅ Teacher: ${teacher.id} (cognitoSub: ${DEMO_COGNITO_SUBS.teacher})`,
-  );
 
+  // Link teacher to classroom
+  await prisma.teacherClassroom.upsert({
+    where: { teacherId_classroomId: { teacherId: teacher.id, classroomId: classroom.id } },
+    update: {},
+    create: { teacherId: teacher.id, classroomId: classroom.id },
+  });
+
+  console.log(`✅ Teacher: ${teacher.id} linked to classroom "${classroom.name}"`);
+
+  const studentNames = ['Diego Vega', 'Valentina Reyes', 'Matías Torres', 'Camila Soto', 'Benjamín Muñoz'];
   const studentData = [
     { email: 'student1@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student1 },
     { email: 'student2@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student2 },
@@ -174,7 +221,7 @@ async function main() {
       },
     });
   }
-  console.log('✅ 5 Students created with cognitoSub linking');
+  console.log(`✅ 5 Students (${studentNames.join(', ')}) created in classroom`);
 
   const parentUser = await prisma.user.upsert({
     where: { email: 'parent@innova.demo' },
@@ -206,34 +253,47 @@ async function main() {
       studentId: 'seed-student-001',
     },
   });
-  console.log(`✅ Parent: ${parent.id} linked to seed-student-001`);
+  console.log(`✅ Parent linked to Diego Vega (seed-student-001)`);
 
-  const skill = await prisma.skill.upsert({
-    where: { key: 'subtraction_borrow' },
-    update: {},
-    create: {
-      key: 'subtraction_borrow',
-      name: 'Sustracción con préstamo',
-      description: 'Resta con reagrupación para 3° básico',
-    },
-  });
+  // === Skills ===
+  const skillDefs = [
+    { key: 'subtraction_borrow', name: 'Sustracción con préstamo', description: 'Resta con reagrupación para 4° básico' },
+    { key: 'addition_carry', name: 'Suma con llevada', description: 'Suma con reagrupación de decenas' },
+    { key: 'multiplication_table', name: 'Tablas de multiplicar', description: 'Multiplicación básica 1–10' },
+    { key: 'long_division', name: 'División larga', description: 'División con cociente de 2+ cifras' },
+  ];
 
-  await prisma.skillBKTParams.upsert({
-    where: { skillId: skill.id },
-    update: {},
-    create: {
-      skillId: skill.id,
-      pL0: 0.3,
-      pT: 0.1,
-      pS: 0.1,
-      pG: 0.2,
-    },
-  });
-  console.log(`✅ Skill + BKT params: ${skill.key}`);
+  const skillMap: Record<string, string> = {};
+  for (const def of skillDefs) {
+    const skill = await prisma.skill.upsert({
+      where: { key: def.key },
+      update: {},
+      create: {
+        key: def.key,
+        name: def.name,
+        description: def.description,
+      },
+    });
+    skillMap[def.key] = skill.id;
 
+    await prisma.skillBKTParams.upsert({
+      where: { skillId: skill.id },
+      update: {},
+      create: {
+        skillId: skill.id,
+        pL0: 0.3,
+        pT: 0.1,
+        pS: 0.1,
+        pG: 0.2,
+      },
+    });
+  }
+  console.log(`✅ 4 Skills created: ${skillDefs.map(s => s.key).join(', ')}`);
+
+  // === Items for subtraction_borrow skill ===
   await prisma.item.deleteMany({
     where: {
-      skillId: skill.id,
+      skillId: skillMap['subtraction_borrow'],
       attempts: { none: {} },
     },
   });
@@ -251,7 +311,7 @@ async function main() {
         },
         create: {
           id: `seed-item-${errorType.toLowerCase()}-${index + 1}`,
-          skillId: skill.id,
+          skillId: skillMap['subtraction_borrow'],
           content: { prompt: item.prompt, expectedAnswer: item.expectedAnswer },
           irtA: item.irtA,
           irtB: item.irtB,
@@ -261,32 +321,114 @@ async function main() {
     }
   }
   console.log(`✅ ${itemCount} Items created for subtraction_borrow`);
+
+  // === StudentSkillMastery records ===
+  for (let i = 0; i < 5; i++) {
+    const studentId = `seed-student-00${i + 1}`;
+    const masteryForStudent = MASTERY_DATA[i];
+
+    for (const [skillKey, pKnown] of Object.entries(masteryForStudent)) {
+      const skillId = skillMap[skillKey];
+      if (!skillId) continue;
+      const masteryId = `seed-mastery-s${i + 1}-${skillKey}`;
+      await prisma.studentSkillMastery.upsert({
+        where: { studentId_skillId: { studentId, skillId } },
+        update: { pKnown },
+        create: {
+          id: masteryId,
+          studentId,
+          skillId,
+          pKnown,
+        },
+      });
+    }
+  }
+  console.log(`✅ StudentSkillMastery records created for 5 students × 4 skills`);
+
+  // === Sample Attempts for Diego Vega (student1) — subtraction_borrow ===
+  const attemptDefs = [
+    { id: 'seed-attempt-001', studentId: 'seed-student-001', itemId: 'seed-item-borrow_omitted-1', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
+    { id: 'seed-attempt-002', studentId: 'seed-student-001', itemId: 'seed-item-borrow_omitted-2', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
+    { id: 'seed-attempt-003', studentId: 'seed-student-001', itemId: 'seed-item-basic_fact_error-1', isCorrect: true, errorType: undefined },
+    { id: 'seed-attempt-004', studentId: 'seed-student-002', itemId: 'seed-item-borrow_omitted-1', isCorrect: true, errorType: undefined },
+    { id: 'seed-attempt-005', studentId: 'seed-student-002', itemId: 'seed-item-borrow_from_zero_error-1', isCorrect: true, errorType: undefined },
+    { id: 'seed-attempt-006', studentId: 'seed-student-005', itemId: 'seed-item-borrow_omitted-3', isCorrect: false, errorType: 'BORROW_OMITTED' as const },
+  ];
+
+  for (const def of attemptDefs) {
+    await prisma.attempt.upsert({
+      where: { id: def.id },
+      update: {},
+      create: {
+        id: def.id,
+        studentId: def.studentId,
+        itemId: def.itemId,
+        isCorrect: def.isCorrect,
+        ...(def.errorType ? { errorType: def.errorType } : {}),
+        classifierSource: 'RULE_ENGINE',
+        confidence: def.isCorrect ? 0.95 : 0.88,
+      },
+    });
+  }
+  console.log(`✅ ${attemptDefs.length} sample Attempts created`);
+
+  // === TeacherAlerts ===
+  const alertDefs = [
+    {
+      id: 'seed-alert-001',
+      teacherId: teacher.id,
+      classroomId: classroom.id,
+      studentId: 'seed-student-001',
+      message: 'Diego Vega lleva 3 errores seguidos en subtraction_borrow — intervención recomendada.',
+      resolved: false,
+    },
+    {
+      id: 'seed-alert-002',
+      teacherId: teacher.id,
+      classroomId: classroom.id,
+      studentId: null,
+      message: 'Error BORROW_OMITTED detectado en 3 alumnos — patrón común en la clase.',
+      resolved: false,
+    },
+    {
+      id: 'seed-alert-003',
+      teacherId: teacher.id,
+      classroomId: classroom.id,
+      studentId: 'seed-student-005',
+      message: 'Benjamín Muñoz: dominio de long_division bajo 0.30 — en riesgo.',
+      resolved: false,
+    },
+  ];
+
+  for (const alert of alertDefs) {
+    await prisma.teacherAlert.upsert({
+      where: { id: alert.id },
+      update: {},
+      create: {
+        id: alert.id,
+        teacherId: alert.teacherId,
+        classroomId: alert.classroomId,
+        ...(alert.studentId ? { studentId: alert.studentId } : {}),
+        message: alert.message,
+        resolved: alert.resolved,
+      },
+    });
+  }
+  console.log(`✅ ${alertDefs.length} TeacherAlerts created`);
+
   console.log(
     `\n🎉 Seed complete! School: "${school.name}", Classroom: "${classroom.name}"`,
   );
-  console.log(`   Teacher ID: ${teacher.id}`);
-  console.log(`   Skill ID: ${skill.id}`);
-  console.log(`   Error types covered: ${ERROR_TYPES.join(', ')}`);
+  console.log(`   Teacher: teacher@innova.demo / Innova123!`);
+  console.log(`   Students: student1–5@innova.demo / Innova123!`);
+  console.log(`   Parent: parent@innova.demo / Innova123! (linked to Diego Vega)`);
+  console.log(`   Skills: ${skillDefs.map(s => s.key).join(', ')}`);
+  console.log(`   Classroom: ${classroom.name} (${classroom.id})`);
   console.log(
     `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
   );
   console.log(`   teacher@innova.demo → ${DEMO_COGNITO_SUBS.teacher}`);
   console.log(`   parent@innova.demo → ${DEMO_COGNITO_SUBS.parent}`);
-  console.log(
-    `\n💡 To add real Cognito groups, run AWS CLI commands (after user signup):`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username teacher@innova.demo --group-name TEACHER`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username student1@innova.demo --group-name STUDENT`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username parent@innova.demo --group-name PARENT`,
-  );
-  console.log(
-    `\n📝 Demo users are seeded with hardcoded cognitoSub for local testing.`,
-  );
 }
 
 main()
