@@ -24,15 +24,21 @@ export class SqsAdapter {
       return;
     }
 
-    await this.client.send(
-      new SendMessageCommand({
-        QueueUrl: input.queueUrl,
-        MessageBody: JSON.stringify(input.messageBody),
-        MessageGroupId: input.messageGroupId,
-      }),
-    );
-
-    this.logger.log(`FIFO message published to ${input.queueUrl}`);
+    try {
+      await this.client.send(
+        new SendMessageCommand({
+          QueueUrl: input.queueUrl,
+          MessageBody: JSON.stringify(input.messageBody),
+          MessageGroupId: input.messageGroupId,
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `FIFO message skipped for ${input.queueUrl}: ${
+          error instanceof Error ? error.message : 'Unknown SQS error'
+        }`,
+      );
+    }
   }
 
   async publishStandard(input: StandardMessageInput): Promise<void> {
@@ -40,13 +46,19 @@ export class SqsAdapter {
       return;
     }
 
-    await this.client.send(
-      new SendMessageCommand({
-        QueueUrl: input.queueUrl,
-        MessageBody: JSON.stringify(input.messageBody),
-      }),
-    );
-
-    this.logger.log(`Standard message published to ${input.queueUrl}`);
+    try {
+      await this.client.send(
+        new SendMessageCommand({
+          QueueUrl: input.queueUrl,
+          MessageBody: JSON.stringify(input.messageBody),
+        }),
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Standard message skipped for ${input.queueUrl}: ${
+          error instanceof Error ? error.message : 'Unknown SQS error'
+        }`,
+      );
+    }
   }
 }

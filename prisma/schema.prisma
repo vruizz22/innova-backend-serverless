@@ -53,18 +53,50 @@ model School {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  classrooms Classroom[]
+  classrooms Classroom[]  // schoolId is optional on Classroom; School has many classrooms
 }
 
 model Classroom {
-  id        String   @id @default(uuid())
-  name      String
-  schoolId  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  schoolId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  school    School   @relation(fields: [schoolId], references: [id])
+  school    School?   @relation(fields: [schoolId], references: [id])
   students  Student[]
+  teachers  TeacherClassroom[]
+  invites   ClassroomInvite[]
+}
+
+model TeacherClassroom {
+  id          String   @id @default(uuid())
+  teacherId   String
+  classroomId String
+  createdAt   DateTime @default(now())
+
+  teacher     Teacher   @relation(fields: [teacherId], references: [id])
+  classroom   Classroom @relation(fields: [classroomId], references: [id])
+
+  @@unique([teacherId, classroomId])
+  @@index([teacherId])
+}
+
+model ClassroomInvite {
+  id          String    @id @default(cuid())
+  code        String    @unique @default(cuid())
+  classroomId String
+  createdBy   String    // teacherId
+  expiresAt   DateTime?
+  maxUses     Int?
+  useCount    Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  classroom   Classroom @relation(fields: [classroomId], references: [id])
+
+  @@index([code])
+  @@index([classroomId])
 }
 
 model Student {
@@ -88,8 +120,9 @@ model Teacher {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id])
-  alerts    TeacherAlert[]
+  user       User     @relation(fields: [userId], references: [id])
+  alerts     TeacherAlert[]
+  classrooms TeacherClassroom[]
 }
 
 model Parent {

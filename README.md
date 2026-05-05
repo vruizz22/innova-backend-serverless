@@ -522,8 +522,10 @@ Ver spec completo: `docs/prompt/01-innova-backend-serverless-testing.md`
 ```
 School            — id, name, region
 Classroom         — id, schoolId, name, gradeLevel
-Student           — id, cognitoSub, classroomId
-Teacher           — id, cognitoSub, classrooms[]
+TeacherClassroom  — teacherId, classroomId
+ClassroomInvite   — id, code, classroomId, createdBy, expiresAt?, maxUses?, useCount
+Student           — id, userId, classroomId
+Teacher           — id, userId, classrooms[]
 Skill             — id, topic (unique), gradeLevel, prerequisites[]
 SkillBKTParams    — skillId (PK), pL0, pTransit, pSlip, pGuess, calibratedAt
 Item              — id, skillId, content (Json), irtA, irtB, attemptCount
@@ -575,6 +577,12 @@ DBML: `docs/mongodb.dbml`.
 | PATCH | `/alerts/:id/resolve` | Marcar alerta resuelta | JWT (teacher) |
 | POST | `/practice/assign` | Generar PracticeAssignment | JWT (teacher) |
 | POST | `/uploads/presigned-url` | Generar presigned URL para foto de cuaderno | JWT |
+| GET | `/classrooms/mine` | Classrooms del teacher autenticado | JWT (teacher) |
+| GET | `/classrooms/student/mine` | Classroom del student autenticado | JWT (student) |
+| POST | `/classrooms` | Teacher crea un classroom | JWT (teacher) |
+| GET | `/classrooms/:id` | Detalle de classroom | JWT |
+| POST | `/classrooms/:id/invite` | Generar código de invitación | JWT (teacher) |
+| POST | `/classrooms/join` | Student se une con código | JWT (student) |
 
 Todos los endpoints requieren `Authorization: Bearer <cognito-jwt>` excepto `/health`.
 Swagger disponible en `http://localhost:3000/api` en modo dev.

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import {
   ApiBody,
   ApiOperation,
@@ -24,8 +24,22 @@ export class ItemsController {
 
   @Get()
   @ApiOperation({ summary: 'List item bank' })
-  findAll() {
-    return this.itemsService.findAll();
+  findAll(
+    @Query('skillKey') skillKey?: string,
+    @Query('topic') topic?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.itemsService.findAll(
+      skillKey ?? topic,
+      limit ? Number(limit) : 32,
+    );
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Get one item' })
+  @ApiParam({ name: 'id' })
+  findOne(@Param('id') id: string) {
+    return this.itemsService.findOne(id);
   }
 
   @Get(':id/irt')

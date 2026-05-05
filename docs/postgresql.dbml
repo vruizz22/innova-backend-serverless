@@ -131,6 +131,28 @@ Table practice_assignments {
   created_at timestamptz [not null]
 }
 
+Table teacher_classrooms {
+  id text [pk]
+  teacher_id text [not null]
+  classroom_id text [not null]
+  created_at timestamptz [not null]
+
+  indexes {
+    (teacher_id, classroom_id) [unique]
+  }
+}
+
+Table classroom_invites {
+  id text [pk]
+  classroom_id text [not null]
+  created_by text [not null, note: 'Teacher id who created the invite']
+  code text [unique, not null]
+  use_count int [not null, default: 0]
+  max_uses int [note: 'null = unlimited']
+  expires_at timestamptz
+  created_at timestamptz [not null]
+}
+
 Ref: classrooms.school_id > schools.id
 Ref: students.user_id > users.id
 Ref: students.classroom_id > classrooms.id
@@ -146,3 +168,7 @@ Ref: student_skill_mastery.student_id > students.id
 Ref: student_skill_mastery.skill_id > skills.id
 Ref: teacher_alerts.teacher_id > teachers.id
 Ref: practice_assignments.student_id > students.id
+Ref: teacher_classrooms.teacher_id > teachers.id
+Ref: teacher_classrooms.classroom_id > classrooms.id
+Ref: classroom_invites.classroom_id > classrooms.id
+Ref: classroom_invites.created_by > teachers.id

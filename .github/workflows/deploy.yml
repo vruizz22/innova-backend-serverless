@@ -39,9 +39,15 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
+          PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
+          PUBLIC_PRACTICE_URL: ${{ secrets.PUBLIC_PRACTICE_URL }}
+          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
           COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
           COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
 
       - name: Build Application
         run: pnpm build
@@ -85,6 +91,7 @@ jobs:
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
           PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
+          PUBLIC_PRACTICE_URL: ${{ secrets.PUBLIC_PRACTICE_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
           COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
           COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
@@ -93,6 +100,8 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          LOG_LEVEL: ${{ secrets.LOG_LEVEL || 'info' }}
 
       - name: Post-deploy info
         run: pnpm exec serverless info --verbose --stage prod

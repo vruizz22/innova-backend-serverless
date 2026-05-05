@@ -44,6 +44,7 @@ export interface AuthSessionResponse extends LocalAuthSession {
     id: string;
     email: string;
     role: Role;
+    profileId: string | null;
     cognitoSub: string | null;
     tokenVersion: number;
   };
@@ -78,6 +79,8 @@ export class AuthService {
         authRole: dto.role,
       },
     });
+
+    await this.ensureRoleProfile(user.id, this.resolveRole(user.authRole));
 
     return this.buildSessionResponse(
       user.id,
@@ -226,6 +229,10 @@ export class AuthService {
         id: user.id,
         email: user.email,
         role: this.resolveRole(user.authRole),
+        profileId: await this.findProfileId(
+          user.id,
+          this.resolveRole(user.authRole),
+        ),
         cognitoSub: user.cognitoSub,
         tokenVersion: user.tokenVersion,
       },
@@ -249,13 +256,13 @@ export class AuthService {
     return { message: 'Session revoked successfully' };
   }
 
-  private buildSessionResponse(
+  private async buildSessionResponse(
     sub: string,
     email: string,
     role: Role,
     tokenVersion: number,
     cognitoSub: string | null,
-  ): AuthSessionResponse {
+  ): Promise<AuthSessionResponse> {
     const session = this.tokenService.buildSession({
       sub,
       email,
@@ -269,6 +276,7 @@ export class AuthService {
         id: sub,
         email,
         role,
+        profileId: await this.findProfileId(sub, role),
         cognitoSub,
         tokenVersion,
       },
@@ -330,6 +338,58 @@ export class AuthService {
     if (authRole === Role.TEACHER) return Role.TEACHER;
     if (authRole === Role.PARENT) return Role.PARENT;
     return Role.STUDENT;
+  }
+
+  private async ensureRoleProfile(userId: string, role: Role): Promise<void> {
+    if (role === Role.TEACHER) {
+      const existing = await this.prisma.teacher.findFirst({
+        where: { userId },
+      });
+      if (!existing) await this.prisma.teacher.create({ data: { userId } });
+      return;
+    }
+
+    if (role === Role.PARENT) {
+      const existing = await this.prisma.parent.findFirst({
+        where: { userId },
+      });
+      if (!existing) await this.prisma.parent.create({ data: { userId } });
+      return;
+    }
+
+    if (role === Role.STUDENT) {
+      const existing = await this.prisma.student.findFirst({
+        where: { userId },
+      });
+      if (!existing) await this.prisma.student.create({ data: { userId } });
+    }
+  }
+
+  private async findProfileId(
+    userId: string,
+    role: Role,
+  ): Promise<string | null> {
+    if (role === Role.TEACHER) {
+      const teacher = await this.prisma.teacher.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      return teacher?.id ?? null;
+    }
+
+    if (role === Role.PARENT) {
+      const parent = await this.prisma.parent.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      return parent?.id ?? null;
+    }
+
+    const student = await this.prisma.student.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+    return student?.id ?? null;
   }
 
   private assertTokenVersion(user: AuthUserRecord, tokenVersion: number): void {

@@ -150,8 +150,9 @@ async function main() {
   for (let i = 0; i < studentData.length; i++) {
     const { email, cognitoSub } = studentData[i];
     const sUser = await prisma.user.upsert({
-      where: { cognitoSub },
+      where: { email },
       update: {
+        cognitoSub,
         email,
         authRole: 'student',
         passwordHash: hashPassword(DEMO_PASSWORD),
@@ -230,11 +231,26 @@ async function main() {
   });
   console.log(`✅ Skill + BKT params: ${skill.key}`);
 
+  await prisma.item.deleteMany({
+    where: {
+      skillId: skill.id,
+      attempts: { none: {} },
+    },
+  });
+
   let itemCount = 0;
-  for (const [, items] of Object.entries(ITEMS_BY_ERROR)) {
-    for (const item of items) {
-      await prisma.item.create({
-        data: {
+  for (const [errorType, items] of Object.entries(ITEMS_BY_ERROR)) {
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      await prisma.item.upsert({
+        where: { id: `seed-item-${errorType.toLowerCase()}-${index + 1}` },
+        update: {
+          content: { prompt: item.prompt, expectedAnswer: item.expectedAnswer },
+          irtA: item.irtA,
+          irtB: item.irtB,
+        },
+        create: {
+          id: `seed-item-${errorType.toLowerCase()}-${index + 1}`,
           skillId: skill.id,
           content: { prompt: item.prompt, expectedAnswer: item.expectedAnswer },
           irtA: item.irtA,
