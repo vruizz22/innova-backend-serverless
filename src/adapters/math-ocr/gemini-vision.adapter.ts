@@ -28,36 +28,53 @@ export class GeminiVisionAdapter implements MathOCRPort {
   }
 
   async extract(imageBytes: Buffer): Promise<MathOCRResult> {
-    const model = this.client.getGenerativeModel({ model: 'gemini-2.0-flash' });
+    try {
+      const model = this.client.getGenerativeModel({
+        model: 'gemini-2.0-flash',
+      });
 
-    const imagePart = {
-      inlineData: {
-        mimeType: 'image/jpeg' as const,
-        data: imageBytes.toString('base64'),
-      },
-    };
+      const imagePart = {
+        inlineData: {
+          mimeType: 'image/jpeg' as const,
+          data: imageBytes.toString('base64'),
+        },
+      };
 
-    const result = await model.generateContent([SYSTEM_PROMPT, imagePart]);
-    const text = result.response.text();
+      const result = await model.generateContent([SYSTEM_PROMPT, imagePart]);
+      const text = result.response.text();
 
-    // Strip markdown code fences if present
-    const jsonText = text.replace(/```(?:json)?\n?/g, '').trim();
-    const parsed = JSON.parse(jsonText) as GeminiOcrResponse;
+      // Strip markdown code fences if present
+      const jsonText = text.replace(/```(?:json)?\n?/g, '').trim();
+      const parsed = JSON.parse(jsonText) as GeminiOcrResponse;
 
-    const steps = parsed.latex_steps ?? [];
-    const rawSteps: AttemptStepDto[] = steps.map(
-      (expression, idx): AttemptStepDto => ({
-        expression,
-        isFinal: idx === steps.length - 1,
-      }),
-    );
+      const steps = parsed.latex_steps ?? [];
+      const rawSteps: AttemptStepDto[] = steps.map(
+        (expression, idx): AttemptStepDto => ({
+          expression,
+          isFinal: idx === steps.length - 1,
+        }),
+      );
 
-    return {
-      extractedText: steps.join(' | '),
-      confidence: parsed.overall_confidence,
-      rawSteps,
-      topicHint: parsed.topic_hint ?? null,
-      finalAnswer: parsed.final_answer,
-    };
+      return {
+        extractedText: steps.join(' | '),
+        confidence: parsed.overall_confidence,
+        rawSteps,
+        topicHint: parsed.topic_hint ?? null,
+        finalAnswer: parsed.final_answer,
+      };
+    } catch (error) {
+      // Fallback: return low-confidence placeholder OCR result
+      const errorMsg =
+        error instanceof Error ? error.message : 'OCR extraction failed';
+      console.error('[Gemini OCR] Extraction failed:', errorMsg);
+
+      return {
+        extractedText: 'OCR no disponible',
+        confidence: 0,
+        rawSteps: [],
+        topicHint: null,
+        finalAnswer: '0',
+      };
+    }
   }
 }
