@@ -61,9 +61,4 @@ export class CreateAttemptDto {
   @IsOptional()
   @IsNumber()
   subtrahend?: number;
-
-  // Legacy compat — topic skill key mapping
-  get skillKey(): string {
-    return this.topicCode;
-  }
 }
