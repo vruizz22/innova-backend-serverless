@@ -16,9 +16,6 @@ const makeDto = (
     rawSteps: [],
     minuend: 53,
     subtrahend: 26,
-    get skillKey() {
-      return (this as unknown as { topicCode: string }).topicCode;
-    },
     ...overrides,
   }) as unknown as CreateAttemptDto;
 
