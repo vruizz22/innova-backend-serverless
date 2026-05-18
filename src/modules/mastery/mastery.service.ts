@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
 export interface MasteryState {
@@ -57,9 +58,13 @@ function contentString(value: unknown, key: string): string {
   return '';
 }
 
+function isUnknownArray(v: unknown): v is unknown[] {
+  return Array.isArray(v);
+}
+
 function finalExpression(rawSteps: unknown): string {
-  if (!Array.isArray(rawSteps)) return '';
-  const items: unknown[] = rawSteps;
+  if (!isUnknownArray(rawSteps)) return '';
+  const items = rawSteps;
   const finalStep: unknown = [...items]
     .reverse()
     .find(
@@ -95,7 +100,7 @@ export class MasteryService {
     const pS = skill?.bktParams?.pS ?? 0.1;
     const pG = skill?.bktParams?.pG ?? 0.2;
 
-    const existing = skill
+    const existing: Prisma.StudentSkillMasteryGetPayload<object> | null = skill
       ? await this.prisma.studentSkillMastery.findUnique({
           where: { studentId_skillId: { studentId, skillId: skill.id } },
         })
