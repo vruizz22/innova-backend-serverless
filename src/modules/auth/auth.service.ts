@@ -302,7 +302,11 @@ export class AuthService {
       const existing = await this.prisma.student.findFirst({
         where: { userId },
       });
-      if (!existing) await this.prisma.student.create({ data: { userId } });
+      if (!existing) {
+        await this.prisma.student.create({
+          data: { userId, displayName: 'Nuevo Alumno' },
+        });
+      }
     }
   }
 
