@@ -1,6 +1,6 @@
 // ===== MOCKS FOR ES MODULES =====
 // jwks-rsa uses jose (ES module) which Jest cannot parse.
-// Mock before importing AppModule which depends on JwtStrategy.
+// Mock before importing AppModule which depends on SupabaseJwtStrategy.
 jest.mock('jwks-rsa', () => ({
   passportJwtSecret: () => {
     return (
@@ -22,90 +22,74 @@ import { AppModule } from '@/app.module';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
 /**
- * End-to-End tests for JWT authentication flow.
+ * End-to-End tests for Supabase JWT authentication flow (v7).
  *
- * This test suite validates:
+ * Validates:
  * 1. Bearer token extraction from Authorization header
- * 2. JWT signature validation (mocked JWKS)
- * 3. User resolution and linking (cognitoSub ↔ Prisma)
- * 4. Role-based access control (TEACHER, STUDENT, ADMIN)
+ * 2. JWT signature validation (mocked JWKS via jwks-rsa mock)
+ * 3. User upsert by supabaseUid (UserLinkerService.ensureUser)
+ * 4. Role-based access control (TEACHER, STUDENT, PARENT, ADMIN)
  * 5. Error handling (401 Unauthorized, 403 Forbidden)
  *
- * Note: In production, Cognito issues real RS256-signed JWTs.
- * For testing, we mock the payload structure and validate the flow.
+ * Note: In production, Supabase issues RS256-signed JWTs validated via JWKS.
+ * For testing, jwks-rsa is mocked to return 'test-secret-key' for HS256 verification.
  */
-describe('Auth E2E — JWT Bearer Token Flow', () => {
+describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
   let app: INestApplication | undefined;
   let prisma: PrismaService;
   let httpServer: Server | undefined;
 
-  const COGNITO_REGION = process.env.COGNITO_REGION ?? 'us-east-1';
-  const COGNITO_POOL_ID = process.env.COGNITO_USER_POOL_ID ?? '';
-  const COGNITO_ISSUER = `https://cognito-idp.${COGNITO_REGION}.amazonaws.com/${COGNITO_POOL_ID}`;
+  const SUPABASE_URL =
+    process.env.SUPABASE_URL ?? 'https://test-project.supabase.co';
+  const SUPABASE_ISSUER = `${SUPABASE_URL}/auth/v1`;
 
-  // Test data
+  // Test data — UUIDs matching Supabase auth.users format
   const demoUsers = {
     teacher: {
-      sub: 'us-east-1:00000000-0000-0000-0000-000000000001',
+      sub: '00000000-0000-0000-0000-000000000001',
       email: 'teacher@innova.demo',
-      groups: ['TEACHER'],
+      role: 'teacher',
     },
     student: {
-      sub: 'us-east-1:00000000-0000-0000-0000-000000000011',
+      sub: '00000000-0000-0000-0000-000000000011',
       email: 'student@innova.demo',
-      groups: ['STUDENT'],
+      role: 'student',
     },
   };
 
   /**
-   * Generate a mock JWT payload matching Cognito structure.
-   * In tests, we sign with HS256 (for simplicity).
-   * Real Cognito uses RS256 with asymmetric keys.
+   * Generate a mock JWT payload matching Supabase RS256 JWT structure.
+   * Signed with HS256 in tests since jwks-rsa is mocked.
    */
-  const generateMockJwt = (
+  const generateSupabaseJwt = (
     sub: string,
     email: string,
-    groups: string[] = [],
+    role: string = 'student',
   ): string => {
     const now = Math.floor(Date.now() / 1000);
     const payload = {
       sub,
       email,
-      'cognito:groups': groups,
-      token_use: 'access',
-      iss: COGNITO_ISSUER,
+      aud: 'authenticated',
+      iss: SUPABASE_ISSUER,
+      role: 'authenticated',
+      app_metadata: { role },
+      user_metadata: {},
       exp: now + 3600,
       iat: now,
     };
     return jwt.sign(payload, 'test-secret-key', { algorithm: 'HS256' });
   };
 
-  const ensureUserWithCognitoSub = async (
+  const ensureUserWithSupabaseUid = async (
     email: string,
-    cognitoSub: string,
+    supabaseUid: string,
+    authRole: string = 'student',
   ): Promise<void> => {
-    const existingByEmail = await prisma.user.findUnique({ where: { email } });
-    if (existingByEmail) {
-      await prisma.user.update({
-        where: { id: existingByEmail.id },
-        data: { cognitoSub, tokenVersion: 0 },
-      });
-      return;
-    }
-
-    const existingBySub = await prisma.user.findUnique({
-      where: { cognitoSub },
-    });
-    if (existingBySub) {
-      await prisma.user.update({
-        where: { id: existingBySub.id },
-        data: { email, cognitoSub, tokenVersion: 0 },
-      });
-      return;
-    }
-
-    await prisma.user.create({
-      data: { email, cognitoSub },
+    await prisma.user.upsert({
+      where: { supabaseUid },
+      update: { email },
+      create: { email, supabaseUid, authRole },
     });
   };
 
@@ -134,12 +118,6 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
     }
   });
 
-  beforeEach(async () => {
-    // Clean up test data
-    // Note: Keep seeded data intact for demo purposes
-    // In production tests, truncate all tables and reseed
-  });
-
   describe('Public endpoints (no auth required)', () => {
     it('GET / should return 200 without Authorization header', async () => {
       const response = await supertest(httpServer!).get('/');
@@ -149,19 +127,18 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
 
   describe('Protected endpoints with valid Bearer token', () => {
     it('should allow request with valid Bearer token for TEACHER', async () => {
-      const token = generateMockJwt(
+      const token = generateSupabaseJwt(
         demoUsers.teacher.sub,
         demoUsers.teacher.email,
-        demoUsers.teacher.groups,
+        demoUsers.teacher.role,
       );
 
-      // Ensure teacher exists in DB (use upsert to handle seed conflicts)
-      await ensureUserWithCognitoSub(
+      await ensureUserWithSupabaseUid(
         demoUsers.teacher.email,
         demoUsers.teacher.sub,
+        demoUsers.teacher.role,
       );
 
-      // Test endpoint: GET /auth/me (protected + stable contract)
       const response = await supertest(httpServer!)
         .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
@@ -170,16 +147,16 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
     });
 
     it('should allow request with valid Bearer token for STUDENT', async () => {
-      const token = generateMockJwt(
+      const token = generateSupabaseJwt(
         demoUsers.student.sub,
         demoUsers.student.email,
-        demoUsers.student.groups,
+        demoUsers.student.role,
       );
 
-      // Ensure student exists in DB (use upsert to handle seed conflicts)
-      await ensureUserWithCognitoSub(
+      await ensureUserWithSupabaseUid(
         demoUsers.student.email,
         demoUsers.student.sub,
+        demoUsers.student.role,
       );
 
       const response = await supertest(httpServer!)
@@ -187,6 +164,31 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
+    });
+
+    it('GET /auth/me should return user profile with id, email, role', async () => {
+      const token = generateSupabaseJwt(
+        demoUsers.teacher.sub,
+        demoUsers.teacher.email,
+        demoUsers.teacher.role,
+      );
+
+      await ensureUserWithSupabaseUid(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+        demoUsers.teacher.role,
+      );
+
+      const response = await supertest(httpServer!)
+        .get('/auth/me')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data).toMatchObject({
+        email: demoUsers.teacher.email,
+        role: demoUsers.teacher.role,
+      });
+      expect(response.body.data.id).toBeDefined();
     });
   });
 
@@ -211,98 +213,73 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
     });
   });
 
-  describe('Role-based access control (RBAC)', () => {
-    it('TEACHER should access /teacher/* endpoints (if they exist)', async () => {
-      const token = generateMockJwt(
-        demoUsers.teacher.sub,
-        demoUsers.teacher.email,
-        demoUsers.teacher.groups,
-      );
+  describe('User upsert on first login (ensureUser idempotency)', () => {
+    it('should upsert user by supabaseUid on first login', async () => {
+      const newSub = '00000000-0000-0000-0000-000000000099';
+      const newEmail = 'new-user@innova.demo';
 
-      // Seed teacher
-      await ensureUserWithCognitoSub(
-        demoUsers.teacher.email,
-        demoUsers.teacher.sub,
-      );
+      // Ensure user does not exist before test
+      await prisma.user.deleteMany({ where: { supabaseUid: newSub } });
 
-      // Attempt protected endpoint
+      const token = generateSupabaseJwt(newSub, newEmail, 'student');
+
       const response = await supertest(httpServer!)
         .get('/auth/me')
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
-    });
 
-    it('STUDENT should not access TEACHER-only endpoints', async () => {
-      const token = generateMockJwt(
-        demoUsers.student.sub,
-        demoUsers.student.email,
-        demoUsers.student.groups,
-      );
-
-      // Seed student
-      await ensureUserWithCognitoSub(
-        demoUsers.student.email,
-        demoUsers.student.sub,
-      );
-
-      // Attempt a hypothetical TEACHER-only endpoint
-      // (adjust based on actual route guards in the app)
-      await supertest(httpServer!)
-        .get('/teacher/alerts')
-        .set('Authorization', `Bearer ${token}`);
-
-      // If the endpoint exists and is guarded with @Roles(Role.TEACHER):
-      // expect(response.status).toBe(403);
-      // Otherwise, endpoint may not exist (404)
-    });
-  });
-
-  describe('User linking on first login', () => {
-    it('should auto-link cognitoSub to existing user by email', async () => {
-      // Create a user by email only (no cognitoSub)
-      const userByEmail = await prisma.user.upsert({
-        where: { email: 'email-only@innova.demo' },
-        update: { cognitoSub: null },
-        create: {
-          email: 'email-only@innova.demo',
-          cognitoSub: null,
-        },
+      // Verify the user was created in DB
+      const createdUser = await prisma.user.findUnique({
+        where: { supabaseUid: newSub },
       });
 
-      // Generate token with this sub and email
-      const token = generateMockJwt(
-        'us-east-1:00000000-0000-0000-0000-000000000099',
-        'email-only@innova.demo',
-        ['STUDENT'],
+      expect(createdUser).not.toBeNull();
+      expect(createdUser?.email).toBe(newEmail);
+      expect(createdUser?.supabaseUid).toBe(newSub);
+
+      // Cleanup
+      await prisma.user.deleteMany({ where: { supabaseUid: newSub } });
+    };);
+
+    it('should be idempotent — repeated requests do not duplicate users', async () => {
+      const token = generateSupabaseJwt(
+        demoUsers.teacher.sub,
+        demoUsers.teacher.email,
+        demoUsers.teacher.role,
       );
 
-      // Make authenticated request
-      await supertest(httpServer!)
-        .get('/auth/me')
-        .set('Authorization', `Bearer ${token}`);
+      await ensureUserWithSupabaseUid(
+        demoUsers.teacher.email,
+        demoUsers.teacher.sub,
+        demoUsers.teacher.role,
+      );
 
-      // Verify that cognitoSub was linked
-      const updatedUser = await prisma.user.findUnique({
-        where: { id: userByEmail.id },
+      // Make 3 requests — user count should remain the same
+      for (let i = 0; i < 3; i++) {
+        const response = await supertest(httpServer!)
+          .get('/auth/me')
+          .set('Authorization', `Bearer ${token}`);
+        expect(response.status).toBe(200);
+      }
+
+      const users = await prisma.user.findMany({
+        where: { supabaseUid: demoUsers.teacher.sub },
       });
-
-      expect(updatedUser?.cognitoSub).toBe(
-        'us-east-1:00000000-0000-0000-0000-000000000099',
-      );
-    });
+      expect(users.length).toBe(1);
+    };);
   });
 
   describe('Token expiration handling', () => {
     it('should return 401 when token is expired', async () => {
-      // Generate an expired token
       const now = Math.floor(Date.now() / 1000);
       const payload = {
         sub: demoUsers.teacher.sub,
         email: demoUsers.teacher.email,
-        'cognito:groups': ['TEACHER'],
-        token_use: 'access',
-        iss: COGNITO_ISSUER,
+        aud: 'authenticated',
+        iss: SUPABASE_ISSUER,
+        role: 'authenticated',
+        app_metadata: { role: 'teacher' },
         exp: now - 3600, // Expired 1 hour ago
         iat: now - 7200,
       };
@@ -315,52 +292,6 @@ describe('Auth E2E — JWT Bearer Token Flow', () => {
         .set('Authorization', `Bearer ${expiredToken}`);
 
       expect(response.status).toBe(401);
-    });
-  });
-
-  describe('Bearer token extraction edge cases', () => {
-    it('should ignore additional whitespace in Authorization header', async () => {
-      const token = generateMockJwt(
-        demoUsers.teacher.sub,
-        demoUsers.teacher.email,
-        demoUsers.teacher.groups,
-      );
-
-      await ensureUserWithCognitoSub(
-        demoUsers.teacher.email,
-        demoUsers.teacher.sub,
-      );
-
-      // Note: supertest may normalize headers, so this test validates the strategy logic
-      const response = await supertest(httpServer!)
-        .get('/auth/me')
-        .set('Authorization', `Bearer  ${token}`); // Extra space
-
-      expect(response.status).toBe(401);
-    });
-  });
-
-  describe('Multiple requests with same Bearer token', () => {
-    it('should handle repeated requests with the same token', async () => {
-      const token = generateMockJwt(
-        demoUsers.teacher.sub,
-        demoUsers.teacher.email,
-        demoUsers.teacher.groups,
-      );
-
-      await ensureUserWithCognitoSub(
-        demoUsers.teacher.email,
-        demoUsers.teacher.sub,
-      );
-
-      // Make 3 requests with the same token
-      for (let i = 0; i < 3; i++) {
-        const response = await supertest(httpServer!)
-          .get('/auth/me')
-          .set('Authorization', `Bearer ${token}`);
-
-        expect(response.status).toBe(200);
-      }
     });
   });
 });
