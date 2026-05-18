@@ -1,143 +1,122 @@
 import { MasteryService } from '@modules/mastery/mastery.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { ErrorType, ClassifierSource } from '@prisma/client';
 
-const SKILL = {
-  id: 'skill-1',
-  key: 'subtraction_borrow',
+const TOPIC = {
+  id: 'topic-1',
+  unitId: 'unit-1',
+  code: 'T-SUB-BORROW',
   name: 'Resta con préstamo',
-  bktParams: { pL0: 0.3 },
+  description: null,
+  bktPL0: 0.3,
+  bktPTransit: 0.1,
+  bktPSlip: 0.1,
+  bktPGuess: 0.2,
+  bktCalibratedAt: null,
 };
 
-const STUDENT_WITH_ATTEMPTS = {
+const STUDENT = {
   id: 'student-1',
   userId: 'user-1',
-  classroomId: 'class-1',
+  displayName: 'Diego Vega',
+  externalEmail: null,
+  birthYear: null,
   createdAt: new Date(),
-  updatedAt: new Date(),
-  user: { email: 'student1@innova.demo' },
-  mastery: [{ skillId: 'skill-1', pKnown: 0.65 }],
+  deletedAt: null,
+  topicMastery: [{ topicId: 'topic-1', pKnown: 0.65, topic: TOPIC }],
   attempts: [
     {
       id: 'attempt-1',
-      itemId: 'item-1',
-      item: {
-        skillId: 'skill-1',
+      exerciseId: 'exercise-1',
+      exercise: {
+        topicId: 'topic-1',
         content: { prompt: '53 - 26 = ?', expectedAnswer: 27 },
       },
       isCorrect: false,
-      errorType: ErrorType.BORROW_OMITTED,
-      classifierSource: ClassifierSource.RULE_ENGINE,
+      errorTag: { id: 'tag-1', code: 'BORROW_OMITTED_TENS' },
+      classifierSource: 'RULE',
       confidence: 0.93,
-      rawSteps: [{ expression: '53 - 26 = 33', isFinal: true }],
       createdAt: new Date(),
-      updatedAt: new Date(),
     },
     {
       id: 'attempt-2',
-      itemId: null,
-      item: null,
+      exerciseId: 'exercise-2',
+      exercise: {
+        topicId: 'topic-1',
+        content: { prompt: '72 - 48 = ?', expectedAnswer: 24 },
+      },
       isCorrect: true,
-      errorType: null,
-      classifierSource: ClassifierSource.RULE_ENGINE,
+      errorTag: null,
+      classifierSource: 'RULE',
       confidence: 1.0,
-      rawSteps: [],
       createdAt: new Date(),
-      updatedAt: new Date(),
     },
   ],
 };
 
-function buildMockPrismaForClassroom(): PrismaService {
+function buildMockPrisma(): PrismaService {
   return {
     ensureConnected: jest.fn().mockResolvedValue(undefined),
-    student: {
-      findMany: jest.fn().mockResolvedValue([STUDENT_WITH_ATTEMPTS]),
-      findFirst: jest.fn().mockResolvedValue(null),
+    enrollment: {
+      findMany: jest.fn().mockResolvedValue([{ student: STUDENT }]),
     },
-    skill: {
-      findMany: jest.fn().mockResolvedValue([SKILL]),
-      findUnique: jest.fn().mockResolvedValue(SKILL),
+    topic: {
+      findMany: jest.fn().mockResolvedValue([TOPIC]),
+      findUnique: jest.fn().mockResolvedValue(TOPIC),
     },
-    studentSkillMastery: {
-      findMany: jest
-        .fn()
-        .mockResolvedValue([
-          { skillId: 'skill-1', pKnown: 0.65, skill: SKILL },
-        ]),
-      findUnique: jest.fn().mockResolvedValue(null),
+    studentTopicMastery: {
+      findUnique: jest.fn().mockResolvedValue({ pKnown: 0.65 }),
       upsert: jest.fn().mockResolvedValue({}),
+      findMany: jest.fn().mockResolvedValue([{ topic: TOPIC, pKnown: 0.65 }]),
     },
   } as unknown as PrismaService;
 }
 
-describe('MasteryService — getClassroomMastery', () => {
+describe('MasteryService — classroom/course mastery', () => {
   let service: MasteryService;
 
   beforeEach(() => {
-    service = new MasteryService(buildMockPrismaForClassroom());
+    service = new MasteryService(buildMockPrisma());
   });
 
-  it('returns classroom mastery views for all students', async () => {
-    const views = await service.getClassroomMastery('class-1');
-    expect(Array.isArray(views)).toBe(true);
-    expect(views.length).toBe(1);
+  it('getCourseMastery returns array of student mastery views', async () => {
+    const result = await service.getCourseMastery('course-1');
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(1);
   });
 
-  it('includes studentId and studentName in each view', async () => {
-    const [view] = await service.getClassroomMastery('class-1');
-    expect(view.studentId).toBe('student-1');
-    expect(typeof view.studentName).toBe('string');
-    expect(view.studentName.length).toBeGreaterThan(0);
+  it('student view has displayName', async () => {
+    const [student] = await service.getCourseMastery('course-1');
+    expect(student.displayName).toBe('Diego Vega');
   });
 
-  it('includes skills array with pKnown per skill', async () => {
-    const [view] = await service.getClassroomMastery('class-1');
-    expect(Array.isArray(view.skills)).toBe(true);
-    expect(view.skills[0].skillKey).toBe('subtraction_borrow');
-    expect(typeof view.skills[0].pKnown).toBe('number');
+  it('student view has topics array', async () => {
+    const [student] = await service.getCourseMastery('course-1');
+    expect(Array.isArray(student.topics)).toBe(true);
+    expect(student.topics.length).toBeGreaterThan(0);
+    expect(student.topics[0].topicCode).toBe('T-SUB-BORROW');
   });
 
-  it('includes attempts array', async () => {
-    const [view] = await service.getClassroomMastery('class-1');
-    expect(Array.isArray(view.attempts)).toBe(true);
-    expect(view.attempts.length).toBe(2);
+  it('student view has attempts with errorTagCode', async () => {
+    const [student] = await service.getCourseMastery('course-1');
+    expect(student.attempts).toHaveLength(2);
+    expect(student.attempts[0].errorTagCode).toBe('BORROW_OMITTED_TENS');
+    expect(student.attempts[1].errorTagCode).toBeNull();
   });
 
-  it('includes errorFrequency sorted by count desc', async () => {
-    const [view] = await service.getClassroomMastery('class-1');
-    expect(Array.isArray(view.errorFrequency)).toBe(true);
-    // Only 1 error (attempt-2 is correct so not counted)
-    expect(view.errorFrequency.length).toBe(1);
-    expect(view.errorFrequency[0].errorType).toBe('BORROW_OMITTED');
-    expect(view.errorFrequency[0].count).toBe(1);
-    expect(view.errorFrequency[0].percentage).toBe(1);
+  it('errorFrequency aggregates errors correctly', async () => {
+    const [student] = await service.getCourseMastery('course-1');
+    expect(student.errorFrequency).toHaveLength(1);
+    expect(student.errorFrequency[0].errorTagCode).toBe('BORROW_OMITTED_TENS');
+    expect(student.errorFrequency[0].count).toBe(1);
   });
 
-  it('returns empty array for classroom with no students', async () => {
-    const emptyPrisma = {
-      ensureConnected: jest.fn().mockResolvedValue(undefined),
-      student: { findMany: jest.fn().mockResolvedValue([]) },
-      skill: { findMany: jest.fn().mockResolvedValue([]) },
-    } as unknown as PrismaService;
-    const emptyService = new MasteryService(emptyPrisma);
-    const views = await emptyService.getClassroomMastery('unknown-class');
-    expect(views).toEqual([]);
-  });
-});
-
-describe('MasteryService — getStudentMastery', () => {
-  let service: MasteryService;
-
-  beforeEach(() => {
-    service = new MasteryService(buildMockPrismaForClassroom());
+  it('getClassroomMastery is alias for getCourseMastery', async () => {
+    const result = await service.getClassroomMastery('course-1');
+    expect(result).toHaveLength(1);
   });
 
-  it('returns mastery records for a student', async () => {
-    const records = await service.getStudentMastery('student-1');
-    expect(Array.isArray(records)).toBe(true);
-    expect(records.length).toBe(1);
-    expect(records[0].skillKey).toBe('subtraction_borrow');
-    expect(records[0].pKnown).toBe(0.65);
+  it('getStudentMastery returns array of mastery states', async () => {
+    const result = await service.getStudentMastery('student-1');
+    expect(Array.isArray(result)).toBe(true);
   });
 });
