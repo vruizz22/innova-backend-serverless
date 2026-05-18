@@ -31,8 +31,7 @@ enum ErrorType {
 model User {
   id                     String   @id @default(uuid())
   email                  String   @unique
-  // Cognito subject (sub) to link Prisma users with Cognito users
-  cognitoSub             String?  @unique
+  supabaseUid            String?  @unique
   authRole               String?
   passwordHash           String?
   passwordResetTokenHash String?
