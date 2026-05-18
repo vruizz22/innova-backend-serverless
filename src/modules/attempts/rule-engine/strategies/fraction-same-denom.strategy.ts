@@ -53,7 +53,7 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
 
     // Detect "sum numerators AND denominators" pattern:
     // e.g. 2/5 + 1/5 → student writes 3/10 (wrong) vs 3/5 (correct)
-    const fracMatch = /(\d+)\/(\d+)\s*[+\-]\s*(\d+)\/(\d+)/.exec(problemExpr);
+    const fracMatch = /(\d+)\/(\d+)\s*[+-]\s*(\d+)\/(\d+)/.exec(problemExpr);
     if (fracMatch) {
       const [, n1, d1, n2, d2] = fracMatch.map(Number);
       if (d1 === d2) {
