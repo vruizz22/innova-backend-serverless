@@ -144,27 +144,27 @@ async function main() {
     },
   });
 
-  // Demo Cognito subjects (deterministic UUIDs for testing)
-  const DEMO_COGNITO_SUBS = {
-    teacher: 'us-east-1:00000000-0000-0000-0000-000000000001',
-    parent: 'us-east-1:00000000-0000-0000-0000-000000000021',
-    student1: 'us-east-1:00000000-0000-0000-0000-000000000011',
-    student2: 'us-east-1:00000000-0000-0000-0000-000000000012',
-    student3: 'us-east-1:00000000-0000-0000-0000-000000000013',
-    student4: 'us-east-1:00000000-0000-0000-0000-000000000014',
-    student5: 'us-east-1:00000000-0000-0000-0000-000000000015',
+  // Demo Supabase UUIDs (deterministic for dev/testing)
+  const DEMO_SUPABASE_UIDS = {
+    teacher: '00000000-0000-0000-0000-000000000001',
+    parent: '00000000-0000-0000-0000-000000000021',
+    student1: '00000000-0000-0000-0000-000000000011',
+    student2: '00000000-0000-0000-0000-000000000012',
+    student3: '00000000-0000-0000-0000-000000000013',
+    student4: '00000000-0000-0000-0000-000000000014',
+    student5: '00000000-0000-0000-0000-000000000015',
   };
 
   const teacherUser = await prisma.user.upsert({
     where: { email: 'teacher@innova.demo' },
     update: {
-      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      supabaseUid: DEMO_SUPABASE_UIDS.teacher,
       authRole: 'teacher',
       passwordHash: hashPassword(DEMO_PASSWORD),
     },
     create: {
       email: 'teacher@innova.demo',
-      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      supabaseUid: DEMO_SUPABASE_UIDS.teacher,
       authRole: 'teacher',
       passwordHash: hashPassword(DEMO_PASSWORD),
     },
@@ -200,26 +200,26 @@ async function main() {
     'Benjamín Muñoz',
   ];
   const studentData = [
-    { email: 'student1@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student1 },
-    { email: 'student2@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student2 },
-    { email: 'student3@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student3 },
-    { email: 'student4@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student4 },
-    { email: 'student5@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student5 },
+    { email: 'student1@innova.demo', supabaseUid: DEMO_SUPABASE_UIDS.student1 },
+    { email: 'student2@innova.demo', supabaseUid: DEMO_SUPABASE_UIDS.student2 },
+    { email: 'student3@innova.demo', supabaseUid: DEMO_SUPABASE_UIDS.student3 },
+    { email: 'student4@innova.demo', supabaseUid: DEMO_SUPABASE_UIDS.student4 },
+    { email: 'student5@innova.demo', supabaseUid: DEMO_SUPABASE_UIDS.student5 },
   ];
 
   for (let i = 0; i < studentData.length; i++) {
-    const { email, cognitoSub } = studentData[i];
+    const { email, supabaseUid } = studentData[i];
     const sUser = await prisma.user.upsert({
       where: { email },
       update: {
-        cognitoSub,
+        supabaseUid,
         email,
         authRole: 'student',
         passwordHash: hashPassword(DEMO_PASSWORD),
       },
       create: {
         email,
-        cognitoSub,
+        supabaseUid,
         authRole: 'student',
         passwordHash: hashPassword(DEMO_PASSWORD),
       },
@@ -241,13 +241,13 @@ async function main() {
   const parentUser = await prisma.user.upsert({
     where: { email: 'parent@innova.demo' },
     update: {
-      cognitoSub: DEMO_COGNITO_SUBS.parent,
+      supabaseUid: DEMO_SUPABASE_UIDS.parent,
       authRole: 'parent',
       passwordHash: hashPassword(DEMO_PASSWORD),
     },
     create: {
       email: 'parent@innova.demo',
-      cognitoSub: DEMO_COGNITO_SUBS.parent,
+      supabaseUid: DEMO_SUPABASE_UIDS.parent,
       authRole: 'parent',
       passwordHash: hashPassword(DEMO_PASSWORD),
     },
@@ -498,11 +498,9 @@ async function main() {
   );
   console.log(`   Skills: ${skillDefs.map((s) => s.key).join(', ')}`);
   console.log(`   Classroom: ${classroom.name} (${classroom.id})`);
-  console.log(
-    `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
-  );
-  console.log(`   teacher@innova.demo → ${DEMO_COGNITO_SUBS.teacher}`);
-  console.log(`   parent@innova.demo → ${DEMO_COGNITO_SUBS.parent}`);
+  console.log(`\n📌 Demo Supabase UID mapping:`);
+  console.log(`   teacher@innova.demo → ${DEMO_SUPABASE_UIDS.teacher}`);
+  console.log(`   parent@innova.demo → ${DEMO_SUPABASE_UIDS.parent}`);
 }
 
 main()
