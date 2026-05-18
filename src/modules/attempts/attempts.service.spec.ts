@@ -100,15 +100,12 @@ describe('AttemptsService', () => {
     expect(result.isCorrect).toBe(true);
     expect(result.errorTagCode).toBe('CORRECT');
     expect(result.classifierSource).toBe('RULE');
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(mastery.applyAttempt).toHaveBeenCalledWith(
       'student-1',
       'topic-1',
       true,
     );
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(sqs.publishFifo).toHaveBeenCalled();
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(sqs.publishStandard).not.toHaveBeenCalled();
   });
 
@@ -133,7 +130,6 @@ describe('AttemptsService', () => {
     const result = await service.create(dto, 'trace-2');
 
     expect(result.classifierSource).toBe('LLM');
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(sqs.publishStandard).toHaveBeenCalled();
   });
 
@@ -160,7 +156,6 @@ describe('AttemptsService', () => {
     expect(result.isCorrect).toBe(false);
     expect(result.errorTagCode).toBe('BORROW_OMITTED_TENS');
     expect(result.classifierSource).toBe('RULE');
-    // eslint-disable-next-line @typescript-eslint/unbound-method
     expect(sqs.publishStandard).not.toHaveBeenCalled();
   });
 
