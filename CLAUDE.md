@@ -143,14 +143,14 @@ SQS Standard (ocr-queue):
 
 ## [8] Supabase JWT guard (v7, reemplaza Cognito)
 
-- `SupabaseJwtStrategy` implementa `CanActivate`, valida `Authorization: Bearer <token>` contra JWKS de Supabase: `https://<project>.supabase.co/auth/v1/.well-known/jwks.json` (o `SUPABASE_JWT_SECRET` HS256 si JWKS no disponible en el plan).
-- `SUPABASE_URL` y `SUPABASE_JWT_SECRET` desde `ConfigService` (no hardcodear).
+- `SupabaseJwtStrategy` implementa `CanActivate`, valida `Authorization: Bearer <token>` contra JWKS de Supabase: `https://<project>.supabase.co/auth/v1/.well-known/jwks.json`. Sólo RS256 — no se usa HS256 ni `SUPABASE_JWT_SECRET`.
+- `SUPABASE_URL` desde `ConfigService` (no hardcodear).
 - `@Roles('STUDENT' | 'TEACHER' | 'PARENT' | 'ADMIN')` lee `role` desde `user.app_metadata.role` (custom claim seteado por trigger Postgres en `auth.users` en signup).
 - `@CurrentUser()` extrae `SupabaseUser { id (sub UUID), email, role, metadata }`.
-- **Auto-linking**: si `User.supabase_uid` es nuevo, buscar por email y vincular (preservar lógica actual del Cognito strategy, sólo cambia el verificador del JWT).
-- **Deprecación:** `CognitoGuard`, `cognito.adapter.ts`, envs `COGNITO_*` → borrar tras corte M8.
+- **Upsert de User local**: `prisma.user.upsert({ where: { supabaseUid } })`. No hay auto-link por email para usuarios pre-existentes (cero prod). El linking por email aplica **sólo** para roster sync de Google Classroom (ADR-108) vía `ExternalIdMap`.
+- Cognito (`CognitoGuard`, `cognito.adapter.ts`, envs `COGNITO_*`) ya fue borrado en el PR de corte M8 — no debe reaparecer.
 
-Doc detallado: `docs/auth-integration-supabase.md` (por crear, sustituye a `auth-integration.md`).
+Doc detallado: `docs/auth-integration-supabase.md`.
 
 ---
 
@@ -172,19 +172,18 @@ See `docs/prompt/01-innova-backend-serverless-testing.md` for full test spec.
 ## [10] Environment variables (validated at boot)
 
 ```env
-DATABASE_URL=                 # v7: Supabase Postgres (post-M12). Hoy Neon.
+DATABASE_URL=                 # Supabase Postgres desde M8 (sin Neon)
 MONGODB_URI=                  # MongoDB Atlas M0
 SUPABASE_URL=                 # https://<project>.supabase.co
-SUPABASE_JWT_SECRET=          # HS256 secret (o usar JWKS endpoint)
-SUPABASE_SERVICE_ROLE_KEY=    # server-only, server admin operations
+SUPABASE_SERVICE_ROLE_KEY=    # server-only, admin operations + bypass RLS
+SUPABASE_ANON_KEY=            # opcional, queries directas desde el backend
 SQS_ATTEMPT_STREAM_URL=
 SQS_LLM_CLASSIFY_URL=
 SQS_OCR_QUEUE_URL=
-SQS_ATTEMPT_REPROCESS_URL=    # nueva en v7: loop OCR→Attempts
+SQS_ATTEMPT_REPROCESS_URL=    # loop OCR→Attempts
 AWS_REGION=
 LOG_LEVEL=info
 ```
-Deprecadas: `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID`, `COGNITO_REGION`.
 
 Validated via `ConfigModule.forRoot({ validationSchema: Joi.object({...}) })` in `AppModule`.
 
