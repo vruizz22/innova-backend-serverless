@@ -200,7 +200,7 @@ Validated via `ConfigModule.forRoot({ validationSchema: Joi.object({...}) })` in
 
 ## [12] What NOT to do
 
-- No ejecutar `prisma migrate/generate`, `serverless deploy`, `pnpm install` desde el agente — ver §[0].
+- No ejecutar `prisma migrate/generate`, `serverless deploy`, `pnpm install` desde el agente — ver §[0]. Tampoco crees las migraciones `migration.sql` a mano, yo ejecutare `prisma migrate dev` localmente para generarlas correctamente.
 - No volver a `CognitoGuard` ni a JWT custom — auth es Supabase (§[8]).
 - Do not add `@ts-ignore` or `as any` — fix the root cause.
 - Do not call Anthropic SDK from this repo — enqueue to SQS and let `innova-ai-engine` handle it.
