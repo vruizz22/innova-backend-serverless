@@ -3,24 +3,21 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Item, Prisma } from '@prisma/client';
+import { Exercise } from '@prisma/client';
 import { z } from 'zod';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { CreateItemDto } from '@modules/items/dto/create-item.dto';
 
-const itemContentSchema = z.object({
+const exerciseContentSchema = z.object({
   prompt: z.string().min(1),
+  expectedAnswer: z.number().optional(),
 });
-
-type ItemWithSkill = Prisma.ItemGetPayload<{
-  include: { skill: { select: { key: true; name: true } } };
-}>;
 
 export interface ItemView {
   id: string;
-  skillId: string;
-  skillKey: string;
-  skillLabel: string;
+  topicId: string;
+  topicCode: string;
+  topicName: string;
   content: {
     prompt: string;
     problem: string;
@@ -30,22 +27,6 @@ export interface ItemView {
   irtA: number;
   irtB: number;
   createdAt: Date;
-  updatedAt: Date;
-}
-
-function readContent(item: ItemWithSkill): ItemView['content'] {
-  const content = item.content as Record<string, unknown>;
-  const prompt = typeof content['prompt'] === 'string' ? content['prompt'] : '';
-  const expectedAnswer =
-    typeof content['expectedAnswer'] === 'number'
-      ? content['expectedAnswer']
-      : null;
-
-  return {
-    prompt,
-    problem: prompt,
-    expectedAnswer,
-  };
 }
 
 function difficultyFromIrt(irtB: number): ItemView['difficulty'] {
@@ -54,18 +35,28 @@ function difficultyFromIrt(irtB: number): ItemView['difficulty'] {
   return 'medium';
 }
 
-function toItemView(item: ItemWithSkill): ItemView {
+type ExerciseWithTopic = Exercise & {
+  topic: { code: string; name: string };
+};
+
+function toItemView(ex: ExerciseWithTopic): ItemView {
+  const content = ex.content as Record<string, unknown>;
+  const prompt = typeof content['prompt'] === 'string' ? content['prompt'] : '';
+  const expectedAnswer =
+    typeof content['expectedAnswer'] === 'number'
+      ? content['expectedAnswer']
+      : null;
+
   return {
-    id: item.id,
-    skillId: item.skillId,
-    skillKey: item.skill.key,
-    skillLabel: item.skill.name,
-    content: readContent(item),
-    difficulty: difficultyFromIrt(item.irtB),
-    irtA: item.irtA,
-    irtB: item.irtB,
-    createdAt: item.createdAt,
-    updatedAt: item.updatedAt,
+    id: ex.id,
+    topicId: ex.topicId,
+    topicCode: ex.topic.code,
+    topicName: ex.topic.name,
+    content: { prompt, problem: prompt, expectedAnswer },
+    difficulty: difficultyFromIrt(ex.irtB),
+    irtA: ex.irtA,
+    irtB: ex.irtB,
+    createdAt: ex.createdAt,
   };
 }
 
@@ -73,54 +64,67 @@ function toItemView(item: ItemWithSkill): ItemView {
 export class ItemsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateItemDto): Promise<Item> {
-    const parsed = itemContentSchema.safeParse(dto.content);
+  async create(dto: CreateItemDto): Promise<Exercise> {
+    const parsed = exerciseContentSchema.safeParse(dto.content);
     if (!parsed.success) {
       throw new BadRequestException('Invalid item content schema');
     }
     await this.prisma.ensureConnected();
-    return this.prisma.item.create({
+
+    // Resolve topicId from skillId (backward compat) or direct topicId
+    const topic = await this.prisma.topic.findFirst({
+      where: { id: dto.skillId },
+    });
+    if (!topic) {
+      throw new NotFoundException(`Topic ${dto.skillId} not found`);
+    }
+
+    return this.prisma.exercise.create({
       data: {
-        skillId: dto.skillId,
+        topicId: topic.id,
+        source: 'TEACHER_AUTHORED',
         content: parsed.data,
         irtA: dto.irtA,
         irtB: dto.irtB,
+        status: 'ACTIVE',
       },
     });
   }
 
-  async findAll(skillKey?: string, limit = 32): Promise<ItemView[]> {
+  async findAll(topicCode?: string, limit = 32): Promise<ItemView[]> {
     await this.prisma.ensureConnected();
-    const items = await this.prisma.item.findMany({
-      where: skillKey ? { skill: { key: skillKey } } : undefined,
-      include: { skill: { select: { key: true, name: true } } },
+    const exercises = await this.prisma.exercise.findMany({
+      where: topicCode
+        ? { topic: { code: topicCode }, status: 'ACTIVE' }
+        : { status: 'ACTIVE' },
+      include: { topic: { select: { code: true, name: true } } },
       orderBy: { createdAt: 'asc' },
       take: Math.min(Math.max(limit, 1), 100),
     });
-    return items.map(toItemView);
+    return exercises.map(toItemView);
   }
 
   async findOne(id: string): Promise<ItemView> {
     await this.prisma.ensureConnected();
-    const item = await this.prisma.item.findUnique({
+    const exercise = await this.prisma.exercise.findUnique({
       where: { id },
-      include: { skill: { select: { key: true, name: true } } },
+      include: { topic: { select: { code: true, name: true } } },
     });
-    if (!item) {
-      throw new NotFoundException('Item not found');
+    if (!exercise) {
+      throw new NotFoundException('Exercise not found');
     }
-    return toItemView(item);
+    return toItemView(exercise);
   }
 
   async getIrtParams(
     id: string,
   ): Promise<{ irtA: number; irtB: number } | null> {
     await this.prisma.ensureConnected();
-    const item = await this.prisma.item.findUnique({
+    const exercise = await this.prisma.exercise.findUnique({
       where: { id },
       select: { irtA: true, irtB: true },
     });
-    if (!item) return null;
-    return { irtA: item.irtA, irtB: item.irtB };
+    if (!exercise) return null;
+    return { irtA: exercise.irtA, irtB: exercise.irtB };
   }
 }
