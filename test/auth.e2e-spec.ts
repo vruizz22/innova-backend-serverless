@@ -184,11 +184,14 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
         .set('Authorization', `Bearer ${token}`);
 
       expect(response.status).toBe(200);
-      expect(response.body.data).toMatchObject({
+      const body = response.body as {
+        data: { id?: string; email: string; role: string };
+      };
+      expect(body.data).toMatchObject({
         email: demoUsers.teacher.email,
         role: demoUsers.teacher.role,
       });
-      expect(response.body.data.id).toBeDefined();
+      expect(body.data.id).toBeDefined();
     });
   });
 
