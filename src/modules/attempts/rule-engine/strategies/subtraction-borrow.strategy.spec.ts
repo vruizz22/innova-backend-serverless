@@ -5,9 +5,6 @@ const makeDto = (overrides: Partial<CreateAttemptDto>): CreateAttemptDto =>
   ({
     studentId: 'student-1',
     topicCode: 'T-SUB-BORROW',
-    get skillKey() {
-      return this.topicCode;
-    },
     expectedAnswer: 27,
     studentAnswer: 27,
     rawSteps: [],
