@@ -12,9 +12,6 @@ const makeDto = (
     rawSteps: [],
     minuend: 38,
     subtrahend: 27,
-    get skillKey() {
-      return 'T-ADD-CARRY';
-    },
     ...overrides,
   }) as unknown as CreateAttemptDto;
 
