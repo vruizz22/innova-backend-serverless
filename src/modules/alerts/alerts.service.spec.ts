@@ -1,20 +1,22 @@
 import { AlertsService } from '@modules/alerts/alerts.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
-import { TeacherAlert } from '@prisma/client';
 
-const BASE_ALERT: TeacherAlert = {
+const BASE_ALERT = {
   id: 'alert-1',
   teacherId: 'teacher-1',
-  classroomId: 'class-1',
+  courseId: 'course-1',
+  topicId: null,
   studentId: null,
-  message: 'Test alert',
-  resolved: false,
+  alertType: 'AT_RISK_STUDENT',
+  severity: 'MED',
+  payload: { message: 'Test alert' },
   createdAt: new Date(),
-  updatedAt: new Date(),
+  resolvedAt: null,
+  resolvedBy: null,
 };
 
 function buildMockPrisma(): PrismaService {
-  const alerts = new Map<string, TeacherAlert>();
+  const alerts = new Map<string, typeof BASE_ALERT>();
   alerts.set('alert-1', { ...BASE_ALERT });
 
   return {
@@ -22,28 +24,18 @@ function buildMockPrisma(): PrismaService {
     teacherAlert: {
       create: jest
         .fn()
-        .mockImplementation(({ data }: { data: Partial<TeacherAlert> }) => {
-          const alert = {
-            ...BASE_ALERT,
-            id: 'new-alert',
-            ...data,
-          } as TeacherAlert;
-          alerts.set(alert.id, alert);
+        .mockImplementation(({ data }: { data: Record<string, unknown> }) => {
+          const alert = { ...BASE_ALERT, id: 'new-alert', ...data };
+          alerts.set(alert.id, alert as typeof BASE_ALERT);
           return Promise.resolve(alert);
         }),
       findMany: jest
         .fn()
         .mockImplementation(
-          ({
-            where,
-          }: {
-            where: { classroomId: string; resolved: boolean };
-          }) => {
+          ({ where }: { where: { courseId: string; resolvedAt: null } }) => {
             return Promise.resolve(
               Array.from(alerts.values()).filter(
-                (a) =>
-                  a.classroomId === where.classroomId &&
-                  a.resolved === where.resolved,
+                (a) => a.courseId === where.courseId && a.resolvedAt === null,
               ),
             );
           },
@@ -61,12 +53,12 @@ function buildMockPrisma(): PrismaService {
             data,
           }: {
             where: { id: string };
-            data: Partial<TeacherAlert>;
+            data: Record<string, unknown>;
           }) => {
             const existing = alerts.get(where.id);
             if (!existing) return Promise.resolve(null);
-            const updated = { ...existing, ...data } as TeacherAlert;
-            alerts.set(where.id, updated);
+            const updated = { ...existing, ...data };
+            alerts.set(where.id, updated as typeof BASE_ALERT);
             return Promise.resolve(updated);
           },
         ),
@@ -81,32 +73,44 @@ describe('AlertsService', () => {
     service = new AlertsService(buildMockPrisma());
   });
 
-  it('creates an alert', async () => {
-    const alert = await service.create('class-1', 'New alert', 'teacher-1');
-    expect(alert.message).toBe('New alert');
-    expect(alert.classroomId).toBe('class-1');
-    expect(alert.teacherId).toBe('teacher-1');
+  it('create — creates an alert and returns AlertView', async () => {
+    const result = await service.create({
+      teacherId: 'teacher-1',
+      courseId: 'course-1',
+      alertType: 'AT_RISK_STUDENT',
+      severity: 'HIGH',
+      payload: { message: 'Test' },
+    });
+    expect(result.id).toBe('new-alert');
+    expect(result.alertType).toBe('AT_RISK_STUDENT');
+    expect(result.resolvedAt).toBeNull();
   });
 
-  it('findByClassroom returns unresolved alerts for given classroom', async () => {
-    const alerts = await service.findByClassroom('class-1');
+  it('findByCourse — returns active alerts for course', async () => {
+    const alerts = await service.findByCourse('course-1');
     expect(Array.isArray(alerts)).toBe(true);
-    expect(alerts.every((a) => !a.resolved)).toBe(true);
-    expect(alerts.every((a) => a.classroomId === 'class-1')).toBe(true);
+    expect(alerts.length).toBeGreaterThan(0);
+    expect(alerts[0].courseId).toBe('course-1');
   });
 
-  it('findByClassroom returns empty array for unknown classroom', async () => {
-    const alerts = await service.findByClassroom('unknown');
+  it('findByCourse — returns empty array for unknown course', async () => {
+    const alerts = await service.findByCourse('unknown-course');
     expect(alerts).toHaveLength(0);
   });
 
-  it('resolve marks alert as resolved', async () => {
-    const resolved = await service.resolve('alert-1');
-    expect(resolved?.resolved).toBe(true);
+  it('resolve — marks alert as resolved', async () => {
+    const result = await service.resolve('alert-1');
+    expect(result).not.toBeNull();
+    expect(result?.resolvedAt).not.toBeNull();
   });
 
-  it('resolve returns null for non-existent alert', async () => {
-    const result = await service.resolve('non-existent');
+  it('resolve — returns null for unknown alert', async () => {
+    const result = await service.resolve('nonexistent-id');
     expect(result).toBeNull();
+  });
+
+  it('findByClassroom — is alias for findByCourse', async () => {
+    const result = await service.findByClassroom('course-1');
+    expect(Array.isArray(result)).toBe(true);
   });
 });
