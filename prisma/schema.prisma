@@ -1,235 +1,518 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "rhel-openssl-1.0.x"]
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "rhel-openssl-1.0.x"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
 }
 
-enum ClassifierSource {
-  RULE_ENGINE
-  LLM
-  OCR
-  HUMAN
-}
-
-enum ErrorType {
-  BORROW_OMITTED
-  BORROW_FROM_ZERO_ERROR
-  SIGN_ERROR
-  SUBTRAHEND_MINUEND_SWAPPED
-  PLACE_VALUE_ERROR
-  BASIC_FACT_ERROR
-  PARTIAL_BORROW_ERROR
-  UNCLASSIFIED
-}
+// =====================================================================
+// AUTH / USERS
+// =====================================================================
 
 model User {
-  id                     String   @id @default(uuid())
-  email                  String   @unique
-  supabaseUid            String?  @unique
-  authRole               String?
-  passwordHash           String?
-  passwordResetTokenHash String?
-  passwordResetExpiresAt DateTime?
-  tokenVersion           Int       @default(0)
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
+  id                     String    @id @default(uuid())
+  supabaseUid            String?   @unique @map("supabase_uid")
+  email                  String    @unique
+  authRole               String?   @map("auth_role")
+  fullName               String?   @map("full_name")
+  locale                 String    @default("es-CL")
+  passwordHash           String?   @map("password_hash")
+  passwordResetTokenHash String?   @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+  tokenVersion           Int       @default(0) @map("token_version")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+  deletedAt              DateTime? @map("deleted_at")
 
-  // relations
-  students  Student[]
-  teachers  Teacher[]
-  parents   Parent[]
-}
+  teacher Teacher?
+  student Student?
+  parent  Parent?
 
-model School {
-  id        String   @id @default(uuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  classrooms Classroom[]  // schoolId is optional on Classroom; School has many classrooms
-}
-
-model Classroom {
-  id          String   @id @default(uuid())
-  name        String
-  description String?
-  schoolId    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  school    School?   @relation(fields: [schoolId], references: [id])
-  students  Student[]
-  teachers  TeacherClassroom[]
-  invites   ClassroomInvite[]
-}
-
-model TeacherClassroom {
-  id          String   @id @default(uuid())
-  teacherId   String
-  classroomId String
-  createdAt   DateTime @default(now())
-
-  teacher     Teacher   @relation(fields: [teacherId], references: [id])
-  classroom   Classroom @relation(fields: [classroomId], references: [id])
-
-  @@unique([teacherId, classroomId])
-  @@index([teacherId])
-}
-
-model ClassroomInvite {
-  id          String    @id @default(cuid())
-  code        String    @unique @default(cuid())
-  classroomId String
-  createdBy   String    // teacherId
-  expiresAt   DateTime?
-  maxUses     Int?
-  useCount    Int       @default(0)
-  createdAt   DateTime  @default(now())
-
-  classroom   Classroom @relation(fields: [classroomId], references: [id])
-
-  @@index([code])
-  @@index([classroomId])
-}
-
-model Student {
-  id         String   @id @default(uuid())
-  userId     String
-  classroomId String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  user       User     @relation(fields: [userId], references: [id])
-  classroom  Classroom? @relation(fields: [classroomId], references: [id])
-  mastery    StudentSkillMastery[]
-  attempts   Attempt[]
-  parentLinks ParentLink[]
-  practiceAssignments PracticeAssignment[]
+  @@map("users")
 }
 
 model Teacher {
-  id        String   @id @default(uuid())
-  userId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  userId      String   @unique @map("user_id")
+  displayName String?  @map("display_name")
+  bio         String?
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  user       User     @relation(fields: [userId], references: [id])
-  alerts     TeacherAlert[]
-  classrooms TeacherClassroom[]
+  user           User             @relation(fields: [userId], references: [id])
+  courseTeachers CourseTeacher[]
+  alerts         TeacherAlert[]
+  assignments    Assignment[]
+  integrations   SchoolIntegration[]
+
+  @@map("teachers")
+}
+
+model Student {
+  id            String    @id @default(uuid())
+  userId        String?   @unique @map("user_id")
+  externalEmail String?   @map("external_email")
+  displayName   String    @map("display_name")
+  birthYear     Int?      @map("birth_year")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  user              User?               @relation(fields: [userId], references: [id])
+  enrollments       Enrollment[]
+  attempts          Attempt[]
+  parentLinks       ParentLink[]
+  topicMastery      StudentTopicMastery[]
+  assignmentTargets AssignmentTarget[]
+
+  @@map("students")
 }
 
 model Parent {
-  id        String   @id @default(uuid())
-  userId    String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  userId      String   @unique @map("user_id")
+  displayName String?  @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  user      User     @relation(fields: [userId], references: [id])
-  links     ParentLink[]
+  user  User       @relation(fields: [userId], references: [id])
+  links ParentLink[]
+
+  @@map("parents")
 }
 
 model ParentLink {
-  id        String   @id @default(uuid())
-  parentId  String
-  studentId String
-  createdAt DateTime @default(now())
+  parentId     String    @map("parent_id")
+  studentId    String    @map("student_id")
+  relationship String
+  confirmedAt  DateTime? @map("confirmed_at")
 
-  parent    Parent   @relation(fields: [parentId], references: [id])
-  student   Student  @relation(fields: [studentId], references: [id])
+  parent  Parent  @relation(fields: [parentId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@id([parentId, studentId])
+  @@map("parent_links")
 }
 
-model Skill {
-  id        String   @id @default(uuid())
-  key       String   @unique
-  name      String
-  description String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// =====================================================================
+// ORGANIZACIÓN ESCOLAR (multi-tenant)
+// =====================================================================
 
-  bktParams SkillBKTParams?
-  items     Item[]
-  mastery   StudentSkillMastery[]
+model Organization {
+  id           String   @id @default(uuid())
+  name         String
+  country      String   @default("CL")
+  billingEmail String?  @map("billing_email")
+  plan         String   @default("FREE")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  schools School[]
+
+  @@map("organizations")
 }
 
-model SkillBKTParams {
-  id        String  @id @default(uuid())
-  skillId   String  @unique
-  pL0       Float   @default(0.2)
-  pT        Float   @default(0.1)
-  pS        Float   @default(0.02)
-  pG        Float   @default(0.2)
+model School {
+  id             String   @id @default(uuid())
+  organizationId String   @map("organization_id")
+  name           String
+  rbd            String?  @unique
+  city           String?
+  region         String?
+  domain         String?
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  skill     Skill   @relation(fields: [skillId], references: [id])
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  courses      Course[]
+  integrations SchoolIntegration[]
+
+  @@index([organizationId])
+  @@index([domain])
+  @@map("schools")
 }
 
-model Item {
-  id        String   @id @default(uuid())
-  skillId   String
-  content   Json
-  irtA      Float    @default(1.0)
-  irtB      Float    @default(0.0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model Course {
+  id           String    @id @default(uuid())
+  schoolId     String    @map("school_id")
+  subjectId    String    @map("subject_id")
+  name         String
+  gradeLevel   Int       @map("grade_level")
+  academicYear Int       @map("academic_year")
+  externalId   String?   @map("external_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  archivedAt   DateTime? @map("archived_at")
 
-  skill     Skill    @relation(fields: [skillId], references: [id])
-  attempts  Attempt[]
+  school         School          @relation(fields: [schoolId], references: [id])
+  subject        Subject         @relation(fields: [subjectId], references: [id])
+  courseTeachers CourseTeacher[]
+  enrollments    Enrollment[]
+  assignments    Assignment[]
+  attempts       Attempt[]
+  alerts         TeacherAlert[]
+  invites        ClassroomInvite[]
+
+  @@index([schoolId, academicYear])
+  @@index([subjectId])
+  @@map("courses")
 }
+
+model CourseTeacher {
+  courseId  String   @map("course_id")
+  teacherId String   @map("teacher_id")
+  role      String   @default("LEAD")
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  course  Course  @relation(fields: [courseId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  @@id([courseId, teacherId])
+  @@map("course_teachers")
+}
+
+model Enrollment {
+  id        String    @id @default(uuid())
+  courseId  String    @map("course_id")
+  studentId String    @map("student_id")
+  status    String    @default("ACTIVE")
+  joinedAt  DateTime  @default(now()) @map("joined_at")
+  leftAt    DateTime? @map("left_at")
+
+  course  Course  @relation(fields: [courseId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+
+  @@unique([courseId, studentId])
+  @@index([studentId])
+  @@map("enrollments")
+}
+
+model ClassroomInvite {
+  id        String    @id @default(cuid())
+  code      String    @unique @default(cuid())
+  courseId  String    @map("course_id")
+  createdBy String    @map("created_by")
+  expiresAt DateTime? @map("expires_at")
+  maxUses   Int?      @map("max_uses")
+  useCount  Int       @default(0) @map("use_count")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  course Course @relation(fields: [courseId], references: [id])
+
+  @@index([code])
+  @@index([courseId])
+  @@map("classroom_invites")
+}
+
+// =====================================================================
+// CURRICULUM (multi-materia, multi-grado)
+// =====================================================================
+
+model Subject {
+  id       String @id @default(uuid())
+  code     String @unique
+  name     String
+  language String @default("es")
+
+  curricula Curriculum[]
+  courses   Course[]
+
+  @@map("subjects")
+}
+
+model Curriculum {
+  id            String    @id @default(uuid())
+  subjectId     String    @map("subject_id")
+  country       String    @default("CL")
+  name          String
+  version       String    @default("1.0")
+  effectiveFrom DateTime? @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+
+  subject Subject @relation(fields: [subjectId], references: [id])
+  units   Unit[]
+
+  @@unique([subjectId, country, version])
+  @@map("curricula")
+}
+
+model Unit {
+  id           String @id @default(uuid())
+  curriculumId String @map("curriculum_id")
+  gradeLevel   Int    @map("grade_level")
+  sequence     Int
+  code         String
+  name         String
+  description  String?
+
+  curriculum Curriculum @relation(fields: [curriculumId], references: [id])
+  topics     Topic[]
+
+  @@unique([curriculumId, code])
+  @@index([curriculumId, gradeLevel, sequence])
+  @@map("units")
+}
+
+model Topic {
+  id               String    @id @default(uuid())
+  unitId           String    @map("unit_id")
+  code             String
+  name             String
+  description      String?
+  bktPL0           Float     @default(0.3) @map("bkt_p_l0")
+  bktPTransit      Float     @default(0.1) @map("bkt_p_transit")
+  bktPSlip         Float     @default(0.1) @map("bkt_p_slip")
+  bktPGuess        Float     @default(0.2) @map("bkt_p_guess")
+  bktCalibratedAt  DateTime? @map("bkt_calibrated_at")
+
+  unit          Unit                  @relation(fields: [unitId], references: [id])
+  exercises     Exercise[]
+  prerequisites TopicPrerequisite[]   @relation("TopicPrereqs")
+  dependents    TopicPrerequisite[]   @relation("PrereqTopics")
+  topicMastery  StudentTopicMastery[]
+  alerts        TeacherAlert[]
+
+  @@unique([unitId, code])
+  @@map("topics")
+}
+
+model TopicPrerequisite {
+  topicId              String @map("topic_id")
+  prerequisiteTopicId  String @map("prerequisite_topic_id")
+
+  topic        Topic @relation("TopicPrereqs", fields: [topicId], references: [id])
+  prerequisite Topic @relation("PrereqTopics", fields: [prerequisiteTopicId], references: [id])
+
+  @@id([topicId, prerequisiteTopicId])
+  @@map("topic_prerequisites")
+}
+
+// =====================================================================
+// EJERCICIOS Y ASIGNACIONES
+// =====================================================================
+
+model Exercise {
+  id                  String    @id @default(uuid())
+  topicId             String    @map("topic_id")
+  source              String    @default("SYSTEM")
+  createdByTeacherId  String?   @map("created_by_teacher_id")
+  content             Json
+  language            String    @default("es")
+  irtA                Float     @default(1.0) @map("irt_a")
+  irtB                Float     @default(0.0) @map("irt_b")
+  irtCalibratedAt     DateTime? @map("irt_calibrated_at")
+  status              String    @default("ACTIVE")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  topic               Topic                @relation(fields: [topicId], references: [id])
+  attempts            Attempt[]
+  assignmentExercises AssignmentExercise[]
+
+  @@index([topicId, source])
+  @@index([topicId, status])
+  @@map("exercises")
+}
+
+model Assignment {
+  id                  String    @id @default(uuid())
+  courseId            String?   @map("course_id")
+  createdByTeacherId  String    @map("created_by_teacher_id")
+  title               String
+  reason              String
+  dueAt               DateTime? @map("due_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  course             Course?              @relation(fields: [courseId], references: [id])
+  teacher            Teacher              @relation(fields: [createdByTeacherId], references: [id])
+  targets            AssignmentTarget[]
+  assignmentExercises AssignmentExercise[]
+  attempts            Attempt[]
+
+  @@index([courseId])
+  @@index([createdByTeacherId])
+  @@map("assignments")
+}
+
+model AssignmentTarget {
+  assignmentId String @map("assignment_id")
+  studentId    String @map("student_id")
+  status       String @default("PENDING")
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id])
+  student    Student    @relation(fields: [studentId], references: [id])
+
+  @@id([assignmentId, studentId])
+  @@index([studentId])
+  @@map("assignment_targets")
+}
+
+model AssignmentExercise {
+  assignmentId String @map("assignment_id")
+  exerciseId   String @map("exercise_id")
+  sequence     Int
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id])
+  exercise   Exercise   @relation(fields: [exerciseId], references: [id])
+
+  @@id([assignmentId, sequence])
+  @@map("assignment_exercises")
+}
+
+// =====================================================================
+// INTENTOS Y TELEMETRÍA RELACIONAL
+// =====================================================================
 
 model Attempt {
-  id               String          @id @default(uuid())
-  studentId        String
-  itemId           String?
-  isCorrect        Boolean
-  errorType        ErrorType?
-  classifierSource ClassifierSource @default(RULE_ENGINE)
+  id               String    @id @default(uuid())
+  assignmentId     String?   @map("assignment_id")
+  exerciseId       String?   @map("exercise_id")
+  studentId        String    @map("student_id")
+  courseId         String?   @map("course_id")
+  inputMode        String    @default("DIGITAL") @map("input_mode")
+  status           String    @default("PENDING")
+  finalAnswer      String?   @map("final_answer")
+  isCorrect        Boolean   @map("is_correct")
+  classifierSource String    @default("RULE") @map("classifier_source")
+  errorTagId       String?   @map("error_tag_id")
   confidence       Float?
-  llmEvidence      Json?
-  rawSteps         Json?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  ocrConfidence    Float?    @map("ocr_confidence")
+  ocrProvider      String?   @map("ocr_provider")
+  llmJobId         String?   @map("llm_job_id")
+  traceId          String    @default(uuid()) @map("trace_id")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  classifiedAt     DateTime? @map("classified_at")
 
-  student          Student         @relation(fields: [studentId], references: [id])
-  item             Item?           @relation(fields: [itemId], references: [id])
+  assignment Assignment? @relation(fields: [assignmentId], references: [id])
+  exercise   Exercise?   @relation(fields: [exerciseId], references: [id])
+  student    Student     @relation(fields: [studentId], references: [id])
+  course     Course?     @relation(fields: [courseId], references: [id])
+  errorTag   ErrorTag?   @relation(fields: [errorTagId], references: [id])
+  steps      AttemptStep[]
+
+  @@index([studentId])
+  @@index([courseId])
+  @@index([exerciseId, createdAt])
+  @@index([errorTagId])
+  @@map("attempts")
 }
 
-model StudentSkillMastery {
-  id        String   @id @default(uuid())
-  studentId String
-  skillId   String
-  pKnown    Float    @default(0.0)
-  updatedAt DateTime @updatedAt
+model AttemptStep {
+  id          String   @id @default(uuid())
+  attemptId   String   @map("attempt_id")
+  stepIndex   Int      @map("step_index")
+  contentLatex String  @map("content_latex")
+  durationMs  Int?     @map("duration_ms")
+  isCorrect   Boolean? @map("is_correct")
+  errorSubtag String?  @map("error_subtag")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  student   Student  @relation(fields: [studentId], references: [id])
-  skill     Skill    @relation(fields: [skillId], references: [id])
+  attempt Attempt @relation(fields: [attemptId], references: [id])
 
-  @@unique([studentId, skillId])
+  @@unique([attemptId, stepIndex])
+  @@map("attempt_steps")
 }
+
+model ErrorTag {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  topicScope  String?  @map("topic_scope")
+  description String
+  severity    String   @default("MED")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  attempts Attempt[]
+
+  @@map("error_tags")
+}
+
+// =====================================================================
+// MASTERY
+// =====================================================================
+
+model StudentTopicMastery {
+  studentId     String    @map("student_id")
+  topicId       String    @map("topic_id")
+  pKnown        Float     @default(0.3) @map("p_known")
+  pSlip         Float     @default(0.1) @map("p_slip")
+  pGuess        Float     @default(0.2) @map("p_guess")
+  pTransit      Float     @default(0.1) @map("p_transit")
+  attemptsCount Int       @default(0) @map("attempts_count")
+  lastAttemptAt DateTime? @map("last_attempt_at")
+  trend7d       Float?    @map("trend_7d")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  student Student @relation(fields: [studentId], references: [id])
+  topic   Topic   @relation(fields: [topicId], references: [id])
+
+  @@id([studentId, topicId])
+  @@index([topicId])
+  @@index([lastAttemptAt])
+  @@map("student_topic_mastery")
+}
+
+// =====================================================================
+// ALERTS
+// =====================================================================
 
 model TeacherAlert {
-  id          String   @id @default(uuid())
-  teacherId   String
-  classroomId String?
-  studentId   String?
-  message     String
-  resolved    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String    @id @default(uuid())
+  teacherId  String    @map("teacher_id")
+  courseId   String    @map("course_id")
+  topicId    String?   @map("topic_id")
+  studentId  String?   @map("student_id")
+  alertType  String    @map("alert_type")
+  severity   String    @default("MED")
+  payload    Json
+  createdAt  DateTime  @default(now()) @map("created_at")
+  resolvedAt DateTime? @map("resolved_at")
+  resolvedBy String?   @map("resolved_by")
 
-  teacher     Teacher  @relation(fields: [teacherId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  course  Course  @relation(fields: [courseId], references: [id])
+  topic   Topic?  @relation(fields: [topicId], references: [id])
+
+  @@index([teacherId, resolvedAt])
+  @@index([courseId, alertType, createdAt])
+  @@map("teacher_alerts")
 }
 
-model PracticeAssignment {
-  id          String   @id @default(uuid())
-  studentId   String
-  items       Json
-  dueAt       DateTime?
-  createdAt   DateTime @default(now())
+// =====================================================================
+// INTEGRACIONES SIS/LMS
+// =====================================================================
 
-  student     Student  @relation(fields: [studentId], references: [id])
+model SchoolIntegration {
+  id                   String    @id @default(uuid())
+  schoolId             String    @map("school_id")
+  provider             String
+  status               String    @default("DRAFT")
+  cadence              String    @default("MANUAL")
+  config               Json      @default("{}")
+  lastSyncAt           DateTime? @map("last_sync_at")
+  lastSyncError        String?   @map("last_sync_error")
+  createdByTeacherId   String?   @map("created_by_teacher_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  school    School          @relation(fields: [schoolId], references: [id])
+  teacher   Teacher?        @relation(fields: [createdByTeacherId], references: [id])
+  externalIds ExternalIdMap[]
+
+  @@unique([schoolId, provider])
+  @@index([status])
+  @@map("school_integrations")
+}
+
+model ExternalIdMap {
+  id                   String    @id @default(uuid())
+  schoolIntegrationId  String    @map("school_integration_id")
+  provider             String
+  externalEntityType   String    @map("external_entity_type")
+  externalId           String    @map("external_id")
+  internalEntityType   String    @map("internal_entity_type")
+  internalEntityId     String    @map("internal_entity_id")
+  firstSeenAt          DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt           DateTime  @default(now()) @map("last_seen_at")
+  deletedAt            DateTime? @map("deleted_at")
+
+  integration SchoolIntegration @relation(fields: [schoolIntegrationId], references: [id])
+
+  @@unique([provider, externalEntityType, externalId, schoolIntegrationId])
+  @@index([internalEntityType, internalEntityId])
+  @@map("external_id_maps")
 }
