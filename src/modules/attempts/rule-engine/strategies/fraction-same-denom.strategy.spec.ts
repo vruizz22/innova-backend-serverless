@@ -55,5 +55,5 @@ describe('FractionSameDenomStrategy', () => {
     );
     expect(result.errorType).toBe('UNCLASSIFIED');
     expect(result.confidence).toBe(0.0);
-  };);
+  });
 });
