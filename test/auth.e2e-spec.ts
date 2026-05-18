@@ -240,7 +240,7 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
 
       // Cleanup
       await prisma.user.deleteMany({ where: { supabaseUid: newSub } });
-    };);
+    });
 
     it('should be idempotent — repeated requests do not duplicate users', async () => {
       const token = generateSupabaseJwt(
@@ -267,7 +267,7 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
         where: { supabaseUid: demoUsers.teacher.sub },
       });
       expect(users.length).toBe(1);
-    };);
+    });
   });
 
   describe('Token expiration handling', () => {
