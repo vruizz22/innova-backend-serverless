@@ -93,21 +93,6 @@ async function main() {
     },
   });
 
-  const unit4 = await prisma.unit.upsert({
-    where: {
-      curriculumId_code: { curriculumId: curriculum.id, code: 'U1-4B-NUMEROS' },
-    },
-    update: {},
-    create: {
-      id: 'seed-unit-002',
-      curriculumId: curriculum.id,
-      gradeLevel: 4,
-      sequence: 1,
-      code: 'U1-4B-NUMEROS',
-      name: 'El medioambiente — Números hasta 10.000',
-    },
-  });
-
   const unit5 = await prisma.unit.upsert({
     where: {
       curriculumId_code: {
