@@ -13,10 +13,10 @@ import { LoginDto } from '@modules/auth/dto/login.dto';
 import { RefreshDto } from '@modules/auth/dto/refresh.dto';
 import { ForgotPasswordDto } from '@modules/auth/dto/forgot-password.dto';
 import { ConfirmForgotPasswordDto } from '@modules/auth/dto/confirm-forgot-password.dto';
-import { AuthenticatedPrincipal } from '@modules/auth/jwt.strategy';
+import type { SupabaseUser } from '@modules/auth/supabase-jwt.strategy';
 
 interface AuthenticatedRequest extends Request {
-  user?: AuthenticatedPrincipal;
+  user?: SupabaseUser;
 }
 
 @ApiTags('auth')
@@ -64,7 +64,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Return the current authenticated user' })
   @ApiResponse({ status: 200, description: 'Authenticated profile' })
   me(@Req() req: AuthenticatedRequest) {
-    return this.authService.me(req.user as AuthenticatedPrincipal);
+    return this.authService.me(req.user as SupabaseUser);
   }
 
   @Post('logout')
@@ -72,6 +72,6 @@ export class AuthController {
   @ApiOperation({ summary: 'Revoke the current session' })
   @ApiResponse({ status: 200, description: 'Session revoked' })
   logout(@Req() req: AuthenticatedRequest) {
-    return this.authService.logout(req.user as AuthenticatedPrincipal);
+    return this.authService.logout(req.user as SupabaseUser);
   }
 }
