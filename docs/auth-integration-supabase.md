@@ -1,23 +1,22 @@
 # Auth Integration — Supabase JWT (v7)
 
-> Reemplaza `auth-integration.md` (Cognito), que se archiva como `archive/auth-integration-cognito.md` al cortar M9.
+> Reemplaza el doc previo de Cognito (se borra en el mismo PR).
 > Referencia: `../../docs/MASTER_PLAN_v7.md` ADR-101.
 > **Regla #0:** los comandos de instalación los corre Victor.
+> **Contexto:** no hay producción ni usuarios reales. Cutover es un único PR — sin coexistencia con Cognito, sin auto-link por email para usuarios pre-existentes, sin fallback HS256.
 
 ---
 
 ## 1. Resumen
 
-- Cliente (web + mobile) hace login con Supabase Auth, obtiene `access_token` (JWT).
+- Cliente (web + mobile) hace login con Supabase Auth, obtiene `access_token` (JWT RS256).
 - Cliente envía `Authorization: Bearer <access_token>` al backend NestJS en `api.superprofes.app`.
-- Backend valida el JWT contra Supabase JWKS (preferido) o HS256 con `SUPABASE_JWT_SECRET` (fallback).
-- Backend extrae `sub` (UUID de `auth.users.id`), `email`, `app_metadata.role` y mapea a `User` local via `supabase_uid` (auto-link por email si no existe).
+- Backend valida el JWT contra Supabase JWKS público (`/auth/v1/.well-known/jwks.json`).
+- Backend extrae `sub` (UUID de `auth.users.id`), `email`, `app_metadata.role` y hace `upsert` del `User` local por `supabase_uid`.
 
 ---
 
-## 2. Verificación del JWT
-
-### 2.1 Estrategia recomendada: JWKS asimétrico (RS256)
+## 2. Verificación del JWT — JWKS RS256
 
 Supabase expone JWKS público en:
 ```
@@ -79,21 +78,6 @@ export class SupabaseJwtStrategy extends PassportStrategy(Strategy, 'supabase-jw
 }
 ```
 
-### 2.2 Fallback: HS256 simétrico (si el plan Supabase no expone JWKS)
-
-Sólo si JWKS no está disponible. Usar `SUPABASE_JWT_SECRET` (visible en Supabase dashboard → Project Settings → API).
-
-```typescript
-super({
-  jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-  ignoreExpiration: false,
-  algorithms: ['HS256'],
-  secretOrKey: config.getOrThrow<string>('SUPABASE_JWT_SECRET'),
-});
-```
-
-**Tradeoff:** HS256 acopla el backend al secret (rotación obliga a redeploy). JWKS RS256 es la opción correcta a futuro.
-
 ---
 
 ## 3. Guard + Roles decorator
@@ -107,9 +91,9 @@ import { AuthGuard } from '@nestjs/passport';
 export class SupabaseAuthGuard extends AuthGuard('supabase-jwt') {}
 ```
 
-`src/modules/auth/decorators/roles.decorator.ts` (sin cambios, reusar el existente).
+`src/modules/auth/decorators/roles.decorator.ts` — reutilizar el existente.
 
-`src/modules/auth/guards/roles.guard.ts` — leer rol desde `req.user.role` (ya viene normalizado por `validate()`).
+`src/modules/auth/guards/roles.guard.ts` — lee rol desde `req.user.role` (ya normalizado por `validate()`).
 
 Uso en controllers:
 ```typescript
@@ -123,37 +107,26 @@ listMyCourses(@CurrentUser() user: SupabaseUser) {
 
 ---
 
-## 4. Auto-linking de User local
+## 4. Upsert de User local
 
-`src/modules/auth/user-linker.service.ts` corre en un interceptor o se llama desde `validate()`:
+`src/modules/auth/user-linker.service.ts`. Como no hay usuarios pre-existentes, basta con `upsert` por `supabaseUid`:
 
 ```typescript
 async ensureUser(payload: { supabaseUid: string; email: string; role: string }) {
-  let user = await this.prisma.user.findUnique({
+  return this.prisma.user.upsert({
     where: { supabaseUid: payload.supabaseUid },
-  });
-  if (user) return user;
-
-  // Auto-link por email (caso roster sync que creó Student/Teacher sin supabase_uid)
-  user = await this.prisma.user.findUnique({ where: { email: payload.email } });
-  if (user) {
-    return this.prisma.user.update({
-      where: { id: user.id },
-      data: { supabaseUid: payload.supabaseUid },
-    });
-  }
-
-  // Caso totalmente nuevo (signup directo sin pasar por roster sync)
-  return this.prisma.user.create({
-    data: {
+    create: {
       supabaseUid: payload.supabaseUid,
       email: payload.email,
     },
+    update: {},
   });
 }
 ```
 
-Para roles `STUDENT` / `TEACHER` / `PARENT`, crear el row tipado correspondiente (`Student`, `Teacher`, `Parent`) en el mismo paso, sólo si no existe. La elección del role-row depende de `payload.role`.
+Para roles `STUDENT` / `TEACHER` / `PARENT`, crear el row tipado correspondiente (`Student`, `Teacher`, `Parent`) en el mismo paso si no existe. La elección del role-row depende de `payload.role`.
+
+> **Nota:** el linking por email **sólo** se usa en el caso de roster sync de Google Classroom (§6), donde el `Student` se creó antes de que el alumno hiciera login. No es un mecanismo de migración legacy.
 
 ---
 
@@ -207,24 +180,26 @@ async function maybeLinkExternalRoster(user: User, email: string) {
 
 ---
 
-## 7. Plan de corte Cognito → Supabase
+## 7. Cutover (un único PR)
 
-| Día | Acción | Quien |
-|---|---|---|
-| D-7 | Deploy `SupabaseJwtStrategy` en paralelo a `CognitoJwtStrategy` (header `Authorization-Provider` decide cuál usar) | backend deploy |
-| D-3 | Clientes migran a Supabase Auth (M9 web, M13 mobile) | clients deploy |
-| D-1 | Verificar que <1% de requests aún usan Cognito JWT (CloudWatch metric custom) | observación |
-| D+0 | Remover `CognitoJwtStrategy`, `CognitoGuard`, `cognito.adapter.ts`, envs `COGNITO_*` | PR de corte |
-| D+7 | Eliminar User Pool en AWS Cognito | manual console |
+No hay producción, no hay coexistencia. Un solo PR:
+
+1. Crear proyecto Supabase, configurar trigger `set_default_role` (ver `innova-clients/docs/SUPABASE_AUTH.md` §5).
+2. Setear secrets en repo (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`).
+3. `git rm` archivos Cognito: `src/modules/auth/cognito-jwt.strategy.ts`, `src/adapters/cognito/`, docs `docs/auth-integration.md` y `docs/auth-testing-status.md`.
+4. Agregar `SupabaseJwtStrategy`, `SupabaseAuthGuard`, `UserLinkerService` y registrarlos en `AuthModule`.
+5. Reemplazar `@UseGuards(CognitoGuard)` → `@UseGuards(SupabaseAuthGuard)` en todos los controllers.
+6. Borrar envs `COGNITO_*` de `.env.example` y de la config (Joi schema).
+7. Smoke test manual: `curl -H "Authorization: Bearer <jwt>" https://api.superprofes.app/auth/me` → `{ id, email, role }`.
 
 ---
 
 ## 8. Tests
 
-- `test/auth/supabase-jwt.strategy.spec.ts`: mock JWKS endpoint, verificar que JWT inválido → 401.
-- `test/auth/user-linker.service.spec.ts`: verificar 3 casos (existe, auto-link por email, crear nuevo) + caso roster sync.
+- `test/auth/supabase-jwt.strategy.spec.ts`: mock JWKS endpoint, verificar que JWT inválido → 401, JWT válido → user normalizado.
+- `test/auth/user-linker.service.spec.ts`: dos casos — primer login (crea User) y login subsecuente (upsert idempotente). Tercer caso: linking con `ExternalIdMap` (ADR-108).
 - `test/auth/roles.guard.spec.ts`: matrix role × endpoint, verificar 403 en role incorrecto.
-- E2E: smoke test desde Postman/curl con JWT real generado por `supabase auth sign-in` (mock o real test user).
+- E2E: smoke test con JWT real generado por `supabase auth sign-in` (test user en staging).
 
 Comando para Victor:
 ```bash
@@ -237,17 +212,11 @@ pnpm jest test/auth --runInBand
 
 ```env
 SUPABASE_URL=https://<project>.supabase.co
-SUPABASE_JWT_SECRET=<from-dashboard>         # solo si fallback HS256
 SUPABASE_SERVICE_ROLE_KEY=<from-dashboard>   # para Admin API (updateUserById)
 SUPABASE_ANON_KEY=<from-dashboard>           # opcional, sólo si el backend hace queries directas Supabase
 ```
 
-Deprecadas:
-```env
-COGNITO_USER_POOL_ID=
-COGNITO_CLIENT_ID=
-COGNITO_REGION=
-```
+No se usa `SUPABASE_JWT_SECRET` — la verificación es JWKS RS256 (asimétrico). No hay envs Cognito.
 
 ---
 
@@ -258,4 +227,4 @@ COGNITO_REGION=
 - Rotar `SUPABASE_SERVICE_ROLE_KEY` si se filtra (regenera en dashboard).
 - Rate-limit en `/auth/me` y endpoints públicos (Upstash Redis post-MVP).
 - CORS: permitir sólo `https://app.superprofes.app` y `https://superprofes.app` en prod.
-- Si el cliente quiere borrar su cuenta: borrar `auth.users` via Admin API + cascade en `User` local (`onDelete: Cascade` en Prisma para `User.supabaseUid` no aplica porque la FK no existe — hacerlo en service).
+- Borrado de cuenta: borrar `auth.users` via Admin API + cascade en `User` local (manejarlo en service; la FK no existe en Prisma).

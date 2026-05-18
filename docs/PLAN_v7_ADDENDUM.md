@@ -21,14 +21,12 @@
 
 ---
 
-## Sprint S2 (M8 — Supabase JWT)
+## Sprint S2 (M8 — Supabase Auth + Postgres en un solo corte)
 
-1. Crear `src/modules/auth/supabase-jwt.strategy.ts`:
-   - `passport-jwt` con `jwtFromRequest = ExtractJwt.fromAuthHeaderAsBearerToken()`.
-   - `secretOrKeyProvider`: si Supabase soporta JWKS en el plan free, usar `passport-jwt-jwks-rsa`; si no, HS256 con `process.env.SUPABASE_JWT_SECRET`.
-   - `validate(payload)`: `payload.sub` → buscar `User.supabase_uid`, fallback a auto-link por email.
-2. Reemplazar `CognitoGuard` por `SupabaseAuthGuard` en módulos. Mantener `@Roles(...)` decorator (sólo cambia la fuente del role: `payload.app_metadata.role`).
-3. Setup Postgres trigger en Supabase (vía SQL editor) para setear `role` en `auth.users.raw_app_meta_data` en signup:
+> No hay producción ni usuarios. Es un único PR que sustituye Cognito y Neon por Supabase (auth + DB). Sin coexistencia, sin `pg_dump`, sin fallback HS256, sin auto-link por email.
+
+1. Crear proyecto Supabase region `us-east-1`. Guardar `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` en GitHub Secrets.
+2. Aplicar trigger Postgres `set_default_role` desde el SQL editor de Supabase (idéntico al de `innova-clients/docs/SUPABASE_AUTH.md §5`):
    ```sql
    create or replace function public.set_default_role()
    returns trigger language plpgsql security definer as $$
@@ -40,10 +38,21 @@
    create trigger on_user_signup before insert on auth.users
      for each row execute function public.set_default_role();
    ```
-4. Doc: `docs/auth-integration-supabase.md` reemplaza `auth-integration.md`. Archivar el viejo como `docs/archive/auth-integration-cognito.md`.
-5. Borrar (M9): `src/modules/auth/cognito-jwt.strategy.ts`, `src/adapters/cognito/`.
+3. Crear `src/modules/auth/supabase-jwt.strategy.ts` con `passport-jwt` + `jwks-rsa` (RS256). Detalle en `docs/auth-integration-supabase.md §2`.
+4. Crear `SupabaseAuthGuard` y reemplazar `@UseGuards(CognitoGuard)` por `@UseGuards(SupabaseAuthGuard)` en todos los controllers.
+5. Crear `UserLinkerService.ensureUser` con `prisma.user.upsert({ where: { supabaseUid } })`. Ver `docs/auth-integration-supabase.md §4`.
+6. `git rm` Cognito: `src/modules/auth/cognito-jwt.strategy.ts`, `src/adapters/cognito/`, `docs/auth-integration.md`, `docs/auth-testing-status.md`. Borrar envs `COGNITO_*` de `.env.example` y del Joi schema en `ConfigModule`.
+7. Apuntar `DATABASE_URL` al Postgres de Supabase (mismo proyecto). Sin `pg_dump` desde Neon — no hay datos importantes. `pnpm prisma migrate deploy` desde cero.
 
-**DoD:** `curl -H "Authorization: Bearer <supabase_jwt>" https://api.superprofes.app/auth/me` retorna `{ id, email, role }` con el `id` ligado en Postgres.
+Comandos para Victor:
+```bash
+cd innova-backend-serverless
+pnpm prisma migrate deploy        # aplica todas las migraciones en Supabase Postgres
+pnpm prisma db seed               # seeds locales (subjects, curriculum, error tags)
+pnpm jest test/auth --runInBand   # tests del strategy + guard + linker
+```
+
+**DoD:** `curl -H "Authorization: Bearer <supabase_jwt>" https://api.superprofes.app/auth/me` retorna `{ id, email, role }`. `DATABASE_URL` apunta a Supabase. Cero referencias a Cognito o Neon en el repo (`grep -r cognito\|neon src/` vacío).
 
 ---
 
@@ -114,23 +123,16 @@ Generar OpenAPI spec con `@nestjs/swagger` (`pnpm add @nestjs/swagger`) y export
 
 ---
 
-## Sprint S6 (M12 — Neon → Supabase Postgres)
+## Sprint S6 (M12 — RLS habilitada)
 
-1. Backup Neon: `pg_dump $NEON_DATABASE_URL -Fc > neon-snapshot.dump`.
-2. Restore Supabase: `pg_restore --no-owner --no-privileges -d $SUPABASE_DATABASE_URL neon-snapshot.dump`.
-3. Validar `_prisma_migrations` se preservó.
-4. Switch `DATABASE_URL` en Lambda env (backend + ai-engine).
-5. Neon en read-only por 7 días (rollback).
-6. Habilitar RLS por tabla user-facing (no en `_prisma_migrations`, no en tablas internas).
+> La migración de DB ya ocurrió en S2 (Supabase Postgres desde el primer día). Este sprint sólo prende RLS por tabla user-facing una vez los clientes consumen Supabase Auth.
 
-Comando Victor:
-```bash
-PGPASSWORD=... pg_dump "$NEON_DATABASE_URL" -Fc -f neon-snapshot.dump
-PGPASSWORD=... pg_restore --no-owner --no-privileges \
-  -d "$SUPABASE_DATABASE_URL" neon-snapshot.dump
-```
+1. Habilitar RLS por tabla user-facing: `User`, `Student`, `Teacher`, `Parent`, `ParentLink`, `Course`, `Enrollment`, `Assignment`, `Attempt`, `AttemptStep`, `StudentTopicMastery`, `TeacherAlert`.
+2. Escribir policies usando `auth.uid()` y el custom claim `role` (`auth.jwt() -> 'app_metadata' ->> 'role'`). Ejemplos en `innova-clients/docs/SUPABASE_AUTH.md §6`.
+3. **No** habilitar RLS en `_prisma_migrations` ni en tablas administrativas (`Subject`, `Curriculum`, `Unit`, `Topic`, `Exercise`, `ErrorTag`) — son read-only para usuarios y el backend escribe con `SUPABASE_SERVICE_ROLE_KEY` (bypass RLS).
+4. Test: con un JWT de `STUDENT`, `select * from "Attempt"` sólo devuelve filas de ese student.
 
-**DoD:** prod corre contra Supabase sin errores 7 días seguidos. Neon read-only.
+**DoD:** RLS encendida en todas las tablas user-facing. Tests de policies pasan en CI.
 
 ---
 
