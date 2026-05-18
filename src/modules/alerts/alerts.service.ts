@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
 export interface AlertView {
@@ -62,7 +63,7 @@ export class AlertsService {
         studentId: params.studentId ?? null,
         alertType: params.alertType,
         severity: params.severity ?? 'MED',
-        payload: params.payload ?? {},
+        payload: (params.payload ?? {}) as Prisma.InputJsonValue,
       },
     });
     return toAlertView(alert);
