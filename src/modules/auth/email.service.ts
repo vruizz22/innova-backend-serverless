@@ -21,9 +21,10 @@ export class EmailService {
     const apiKey = this.configService.get<string>('RESEND_API_KEY');
     const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL');
     if (!apiKey || !fromEmail) {
-      throw new Error(
-        'RESEND_API_KEY and RESEND_FROM_EMAIL are required in production',
+      this.logger.warn(
+        'RESEND_API_KEY or RESEND_FROM_EMAIL not set — email delivery disabled',
       );
+      return;
     }
 
     this.resendClient = new Resend(apiKey);

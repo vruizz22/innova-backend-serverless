@@ -37,8 +37,8 @@ function computeNoBorrowResult(minuend: number, subtrahend: number): number {
 
 @Injectable()
 export class SubtractionBorrowStrategy implements RuleEngineStrategy {
-  supports(skillKey: string): boolean {
-    return skillKey === 'subtraction_borrow';
+  supports(topicCode: string): boolean {
+    return topicCode === 'subtraction_borrow' || topicCode === 'T-SUB-BORROW';
   }
 
   classify(payload: CreateAttemptDto): RuleClassificationResult {

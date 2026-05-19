@@ -4,14 +4,14 @@ import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 const makeDto = (overrides: Partial<CreateAttemptDto>): CreateAttemptDto =>
   ({
     studentId: 'student-1',
-    skillKey: 'subtraction_borrow',
+    topicCode: 'T-SUB-BORROW',
     expectedAnswer: 27,
     studentAnswer: 27,
     rawSteps: [],
     minuend: 53,
     subtrahend: 26,
     ...overrides,
-  }) as CreateAttemptDto;
+  }) as unknown as CreateAttemptDto;
 
 describe('SubtractionBorrowStrategy', () => {
   let strategy: SubtractionBorrowStrategy;
@@ -20,8 +20,9 @@ describe('SubtractionBorrowStrategy', () => {
     strategy = new SubtractionBorrowStrategy();
   });
 
-  it('supports subtraction_borrow skill key', () => {
+  it('supports subtraction_borrow topic codes', () => {
     expect(strategy.supports('subtraction_borrow')).toBe(true);
+    expect(strategy.supports('T-SUB-BORROW')).toBe(true);
     expect(strategy.supports('other_skill')).toBe(false);
   });
 

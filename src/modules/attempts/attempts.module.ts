@@ -6,6 +6,8 @@ import { AttemptsService } from '@modules/attempts/attempts.service';
 import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { RuleEngineFactory } from '@modules/attempts/rule-engine/factory';
 import { SubtractionBorrowStrategy } from '@modules/attempts/rule-engine/strategies/subtraction-borrow.strategy';
+import { AdditionCarryStrategy } from '@modules/attempts/rule-engine/strategies/addition-carry.strategy';
+import { FractionSameDenomStrategy } from '@modules/attempts/rule-engine/strategies/fraction-same-denom.strategy';
 import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
 import { GeminiVisionAdapter } from '@adapters/math-ocr/gemini-vision.adapter';
 import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
@@ -18,6 +20,8 @@ import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
     RuleEngineService,
     RuleEngineFactory,
     SubtractionBorrowStrategy,
+    AdditionCarryStrategy,
+    FractionSameDenomStrategy,
     SqsAdapter,
     MathOCROrchestrator,
     GeminiVisionAdapter,

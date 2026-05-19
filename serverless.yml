@@ -21,6 +21,7 @@ provider:
             - {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
             - {"Fn::GetAtt": ["LlmClassifyDLQ", "Arn"]}
             - {"Fn::GetAtt": ["OcrQueue", "Arn"]}
+            - {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -37,12 +38,13 @@ provider:
     PUBLIC_PRACTICE_URL: ${env:PUBLIC_PRACTICE_URL, ''}
     CORS_ORIGINS: ${env:CORS_ORIGINS, ''}
 
-    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID, ''}
-    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
-    COGNITO_REGION: ${env:COGNITO_REGION, ''}
+    SUPABASE_URL: ${env:SUPABASE_URL, ''}
+    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY, ''}
+    SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY, ''}
     SQS_ATTEMPT_STREAM_URL: {"Ref": "AttemptStreamQueue"}
     SQS_LLM_CLASSIFY_URL: {"Ref": "LlmClassifyQueue"}
     SQS_OCR_QUEUE_URL: {"Ref": "OcrQueue"}
+    SQS_ATTEMPT_REPROCESS_URL: {"Ref": "AttemptReprocessQueue"}
     ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
     GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
     RESEND_API_KEY: ${env:RESEND_API_KEY, ''}
@@ -125,6 +127,16 @@ functions:
     events:
       - schedule: rate(1 hour)
 
+  attemptReprocessWorker:
+    handler: src/infrastructure/workers/attempt-reprocess.worker.handler
+    timeout: 60
+    memorySize: 256
+    events:
+      - sqs:
+          arn: {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
 resources:
   Resources:
     AttemptStreamQueue:
@@ -158,6 +170,22 @@ resources:
         QueueName: ${self:service}-${self:provider.stage}-ocr-queue
         MessageRetentionPeriod: 86400
         VisibilityTimeout: 60
+
+    AttemptReprocessQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-attempt-reprocess-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 60
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["AttemptReprocessDLQ", "Arn"]}
+          maxReceiveCount: 5
+
+    AttemptReprocessDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-attempt-reprocess-dlq
+        MessageRetentionPeriod: 1209600
 
     OcrUploadsBucket:
       Type: AWS::S3::Bucket

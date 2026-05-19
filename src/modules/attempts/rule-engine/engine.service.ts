@@ -8,7 +8,7 @@ export class RuleEngineService {
   constructor(private readonly factory: RuleEngineFactory) {}
 
   classify(payload: CreateAttemptDto): RuleClassificationResult {
-    const strategy = this.factory.getStrategy(payload.skillKey);
+    const strategy = this.factory.getStrategy(payload.topicCode);
     return strategy.classify(payload);
   }
 }

@@ -24,14 +24,19 @@ export class CreateAttemptDto {
   @IsString()
   studentId!: string;
 
-  @ApiProperty()
+  @ApiProperty({ description: 'Topic code (e.g. T-SUB-BORROW)' })
   @IsString()
-  skillKey!: string;
+  topicCode!: string;
 
-  @ApiProperty({ required: false })
+  @ApiProperty({ required: false, description: 'Exercise ID (optional)' })
   @IsOptional()
   @IsString()
-  itemId?: string;
+  exerciseId?: string;
+
+  @ApiProperty({ required: false, description: 'Course ID' })
+  @IsOptional()
+  @IsString()
+  courseId?: string;
 
   @ApiProperty({ type: [AttemptStepDto] })
   @ValidateNested({ each: true })

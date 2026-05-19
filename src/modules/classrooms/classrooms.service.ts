@@ -4,11 +4,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Classroom, ClassroomInvite } from '@prisma/client';
+import { Course, ClassroomInvite } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { CreateClassroomDto } from '@modules/classrooms/dto/create-classroom.dto';
 
-export type ClassroomWithInviteUrl = Classroom & { inviteCode?: string };
+export type CourseWithInviteUrl = Course & { inviteCode?: string };
 
 @Injectable()
 export class ClassroomsService {
@@ -17,7 +17,7 @@ export class ClassroomsService {
   async createForTeacher(
     teacherUserId: string,
     dto: CreateClassroomDto,
-  ): Promise<Classroom> {
+  ): Promise<Course> {
     await this.prisma.ensureConnected();
 
     const teacher = await this.prisma.teacher.findFirst({
@@ -28,20 +28,39 @@ export class ClassroomsService {
       throw new NotFoundException('Teacher profile not found for current user');
     }
 
-    const classroom = await this.prisma.classroom.create({
+    // Get or create a default subject for the demo
+    const subject = await this.prisma.subject.findFirst({
+      where: { code: 'MATH' },
+    });
+    if (!subject) {
+      throw new NotFoundException(
+        'Default subject MATH not found — run seed first',
+      );
+    }
+
+    // Get or create a school for this teacher (use first available)
+    const school = await this.prisma.school.findFirst();
+    if (!school) {
+      throw new NotFoundException('No school found — run seed first');
+    }
+
+    const course = await this.prisma.course.create({
       data: {
         name: dto.name,
-        description: dto.description,
-        teachers: {
-          create: { teacherId: teacher.id },
+        schoolId: school.id,
+        subjectId: subject.id,
+        gradeLevel: 4,
+        academicYear: new Date().getFullYear(),
+        courseTeachers: {
+          create: { teacherId: teacher.id, role: 'LEAD' },
         },
       },
     });
 
-    return classroom;
+    return course;
   }
 
-  async findMineAsTeacher(teacherUserId: string): Promise<Classroom[]> {
+  async findMineAsTeacher(teacherUserId: string): Promise<Course[]> {
     await this.prisma.ensureConnected();
 
     const teacher = await this.prisma.teacher.findFirst({
@@ -50,22 +69,22 @@ export class ClassroomsService {
 
     if (!teacher) return [];
 
-    const links = await this.prisma.teacherClassroom.findMany({
+    const links = await this.prisma.courseTeacher.findMany({
       where: { teacherId: teacher.id },
-      include: { classroom: true },
-      orderBy: { createdAt: 'asc' },
+      include: { course: true },
+      orderBy: { addedAt: 'asc' },
     });
 
-    return links.map((l) => l.classroom);
+    return links.map((l) => l.course);
   }
 
-  async findById(id: string): Promise<Classroom | null> {
+  async findById(id: string): Promise<Course | null> {
     await this.prisma.ensureConnected();
-    return this.prisma.classroom.findUnique({ where: { id } });
+    return this.prisma.course.findUnique({ where: { id } });
   }
 
   async createInvite(
-    classroomId: string,
+    courseId: string,
     teacherUserId: string,
     practiceBaseUrl: string,
   ): Promise<{ code: string; url: string }> {
@@ -79,17 +98,17 @@ export class ClassroomsService {
       throw new ForbiddenException('Teacher profile not found');
     }
 
-    const link = await this.prisma.teacherClassroom.findFirst({
-      where: { teacherId: teacher.id, classroomId },
+    const link = await this.prisma.courseTeacher.findFirst({
+      where: { teacherId: teacher.id, courseId },
     });
 
     if (!link) {
-      throw new ForbiddenException('You do not own this classroom');
+      throw new ForbiddenException('You do not own this course');
     }
 
     const invite: ClassroomInvite = await this.prisma.classroomInvite.create({
       data: {
-        classroomId,
+        courseId,
         createdBy: teacher.id,
       },
     });
@@ -101,24 +120,29 @@ export class ClassroomsService {
     };
   }
 
-  async findMineAsStudent(studentUserId: string): Promise<Classroom[]> {
+  async findMineAsStudent(studentUserId: string): Promise<Course[]> {
     await this.prisma.ensureConnected();
 
     const student = await this.prisma.student.findFirst({
       where: { userId: studentUserId },
-      include: { classroom: true },
+      include: {
+        enrollments: {
+          where: { status: 'ACTIVE' },
+          include: { course: true },
+        },
+      },
     });
 
-    if (!student?.classroom) return [];
-    return [student.classroom];
+    if (!student) return [];
+    return student.enrollments.map((e) => e.course);
   }
 
-  async joinWithCode(code: string, studentUserId: string): Promise<Classroom> {
+  async joinWithCode(code: string, studentUserId: string): Promise<Course> {
     await this.prisma.ensureConnected();
 
     const invite = await this.prisma.classroomInvite.findUnique({
       where: { code },
-      include: { classroom: true },
+      include: { course: true },
     });
 
     if (!invite) throw new NotFoundException('Invalid invitation code');
@@ -140,9 +164,19 @@ export class ClassroomsService {
     if (!student) throw new NotFoundException('Student profile not found');
 
     await this.prisma.$transaction([
-      this.prisma.student.update({
-        where: { id: student.id },
-        data: { classroomId: invite.classroomId },
+      this.prisma.enrollment.upsert({
+        where: {
+          courseId_studentId: {
+            courseId: invite.courseId,
+            studentId: student.id,
+          },
+        },
+        update: { status: 'ACTIVE' },
+        create: {
+          courseId: invite.courseId,
+          studentId: student.id,
+          status: 'ACTIVE',
+        },
       }),
       this.prisma.classroomInvite.update({
         where: { id: invite.id },
@@ -150,6 +184,6 @@ export class ClassroomsService {
       }),
     ]);
 
-    return invite.classroom;
+    return invite.course;
   }
 }

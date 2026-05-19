@@ -39,13 +39,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
           PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
           PUBLIC_PRACTICE_URL: ${{ secrets.PUBLIC_PRACTICE_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
-          COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
-          COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
 
@@ -89,13 +89,13 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
           PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
           PUBLIC_PRACTICE_URL: ${{ secrets.PUBLIC_PRACTICE_URL }}
           CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-          COGNITO_USER_POOL_ID: ${{ secrets.COGNITO_USER_POOL_ID }}
-          COGNITO_CLIENT_ID: ${{ secrets.COGNITO_CLIENT_ID }}
-          COGNITO_REGION: ${{ secrets.COGNITO_REGION }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}

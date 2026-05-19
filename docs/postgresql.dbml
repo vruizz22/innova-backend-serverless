@@ -1,174 +1,556 @@
-// Innova EdTech — PostgreSQL Schema (Post-pivot)
-// Source of truth: prisma/schema.prisma
+// =====================================================================
+// SuperProfes / Innova — PostgreSQL schema (v7.1)
+// Source of truth documental. Prisma schema debe estar en paridad con este DBML.
+// Versión: 2026-05-17
+// Cambios desde v6.x:
+//   - Renames: Skill→Topic, Item→Exercise, Classroom→Course, etc.
+//   - Nuevos: Organization, School (refactor), Subject, Curriculum, Unit,
+//     Topic, Enrollment, Exercise, Assignment, AttemptStep, ErrorTag,
+//     StudentTopicMastery, SchoolIntegration, ExternalIdMap.
+//   - Auth: supabase_uid reemplaza cognito_sub.
+// =====================================================================
 
-Project innova_postgres {
+Project superprofes_db {
   database_type: 'PostgreSQL'
-  Note: 'Operational relational schema for schools, skills, attempts, mastery, and alerts.'
+  Note: '''
+    SuperProfes — backend serverless v7.1
+    - Multi-tenant: Organization → School → Course → Enrollment → Student.
+    - Multi-materia: Subject + Curriculum + Unit + Topic.
+    - Trazabilidad de error: Attempt → AttemptStep, error_tag_id FK.
+    - Integraciones SIS/LMS: SchoolIntegration + ExternalIdMap.
+  '''
 }
 
-Table users {
-  id text [pk]
-  email text [unique, not null]
-  cognito_sub text [unique, note: 'Cognito subject (sub) for direct JWT-to-user linkage']
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+// =====================================================================
+// AUTH / USERS
+// =====================================================================
+
+Table user {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  supabase_uid    uuid       [unique, not null, note: 'auth.users.id en Supabase']
+  email           varchar    [unique, not null]
+  full_name       varchar
+  locale          varchar    [default: 'es-CL']
+  created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
+  deleted_at      timestamptz
+
+  Indexes {
+    email
+    supabase_uid
+  }
 }
 
-Table schools {
-  id text [pk]
-  name text [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+Table teacher {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  user_id         uuid       [unique, not null, ref: > user.id]
+  display_name    varchar
+  bio             text
+  created_at      timestamptz [not null, default: `now()`]
 }
 
-Table classrooms {
-  id text [pk]
-  school_id text [not null]
-  name text [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+Table student {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  user_id         uuid       [unique, ref: > user.id, note: 'NULL hasta que el alumno active su cuenta Supabase']
+  external_email  varchar    [note: 'email del roster sync antes de activación']
+  display_name    varchar    [not null]
+  birth_year      int        [note: 'sin fecha exacta — privacy']
+  created_at      timestamptz [not null, default: `now()`]
+  deleted_at      timestamptz
 }
 
-Table students {
-  id text [pk]
-  user_id text [not null]
-  classroom_id text
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+Table parent {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  user_id         uuid       [unique, not null, ref: > user.id]
+  display_name    varchar
+  created_at      timestamptz [not null, default: `now()`]
 }
 
-Table teachers {
-  id text [pk]
-  user_id text [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+Table parent_link {
+  parent_id       uuid       [not null, ref: > parent.id]
+  student_id      uuid       [not null, ref: > student.id]
+  relationship    varchar    [not null, note: 'PADRE | MADRE | TUTOR']
+  confirmed_at    timestamptz
+
+  Indexes {
+    (parent_id, student_id) [pk]
+  }
 }
 
-Table parents {
-  id text [pk]
-  user_id text [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+// =====================================================================
+// ORGANIZACIÓN ESCOLAR (multi-tenant)
+// =====================================================================
+
+Table organization {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  name            varchar    [not null]
+  country         varchar    [not null, default: 'CL']
+  billing_email   varchar
+  plan            varchar    [not null, default: 'FREE', note: 'FREE | PILOT | PRO']
+  created_at      timestamptz [not null, default: `now()`]
+  Note: 'Una Organization agrupa N Schools (red de colegios) o sólo 1 (colegio independiente).'
 }
 
-Table parent_links {
-  id text [pk]
-  parent_id text [not null]
-  student_id text [not null]
-  created_at timestamptz [not null]
+Table school {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  organization_id uuid       [not null, ref: > organization.id]
+  name            varchar    [not null]
+  rbd             varchar    [unique, note: 'Rol Base de Datos chileno. NULL si fuera de Chile.']
+  city            varchar
+  region          varchar
+  domain          varchar    [note: 'ej. @saintandrew.cl para auto-assign por email']
+  created_at      timestamptz [not null, default: `now()`]
+
+  Indexes {
+    organization_id
+    domain
+  }
 }
 
-Table skills {
-  id text [pk]
-  key text [unique, not null]
-  name text [not null]
+Table course {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  school_id       uuid       [not null, ref: > school.id]
+  subject_id      uuid       [not null, ref: > subject.id]
+  name            varchar    [not null, note: 'ej. "4to básico A"']
+  grade_level     int        [not null, note: '1..12']
+  academic_year   int        [not null]
+  external_id     varchar    [note: 'ID original en Google Classroom / Teams / SIS']
+  created_at      timestamptz [not null, default: `now()`]
+  archived_at     timestamptz
+
+  Indexes {
+    (school_id, academic_year)
+    subject_id
+  }
+}
+
+Table course_teacher {
+  course_id       uuid       [not null, ref: > course.id]
+  teacher_id      uuid       [not null, ref: > teacher.id]
+  role            varchar    [not null, default: 'LEAD', note: 'LEAD | ASSISTANT']
+  added_at        timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (course_id, teacher_id) [pk]
+  }
+}
+
+Table enrollment {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  course_id       uuid       [not null, ref: > course.id]
+  student_id      uuid       [not null, ref: > student.id]
+  status          varchar    [not null, default: 'ACTIVE', note: 'ACTIVE | TRANSFERRED | LEFT']
+  joined_at       timestamptz [not null, default: `now()`]
+  left_at         timestamptz
+
+  Indexes {
+    (course_id, student_id) [unique]
+    student_id
+  }
+}
+
+// =====================================================================
+// CURRICULUM (multi-materia, multi-grado)
+// =====================================================================
+
+Table subject {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  code            varchar    [unique, not null, note: 'MATH | LANG | SCIENCE | ...']
+  name            varchar    [not null]
+  language        varchar    [not null, default: 'es']
+}
+
+Table curriculum {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  subject_id      uuid       [not null, ref: > subject.id]
+  country         varchar    [not null, default: 'CL']
+  name            varchar    [not null, note: 'ej. "Matemáticas básica chilena 3°-6° 2026"']
+  version         varchar    [not null, default: '1.0']
+  effective_from  date
+  effective_to    date
+
+  Indexes {
+    (subject_id, country, version) [unique]
+  }
+}
+
+Table unit {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  curriculum_id   uuid       [not null, ref: > curriculum.id]
+  grade_level     int        [not null]
+  sequence        int        [not null, note: 'orden dentro del año']
+  code            varchar    [not null, note: 'ej. U3-FRACCIONES']
+  name            varchar    [not null]
+  description     text
+
+  Indexes {
+    (curriculum_id, grade_level, sequence)
+    (curriculum_id, code) [unique]
+  }
+}
+
+Table topic {
+  id                uuid     [pk, default: `gen_random_uuid()`]
+  unit_id           uuid     [not null, ref: > unit.id]
+  code              varchar  [not null, note: 'ej. T-FRAC-SUMA-IGUAL-DENOM']
+  name              varchar  [not null]
+  description       text
+  bkt_p_l0          float    [not null, default: 0.3]
+  bkt_p_transit     float    [not null, default: 0.1]
+  bkt_p_slip        float    [not null, default: 0.1]
+  bkt_p_guess       float    [not null, default: 0.2]
+  bkt_calibrated_at timestamptz
+
+  Indexes {
+    (unit_id, code) [unique]
+  }
+}
+
+Table topic_prerequisite {
+  topic_id              uuid [not null, ref: > topic.id]
+  prerequisite_topic_id uuid [not null, ref: > topic.id]
+  Indexes {
+    (topic_id, prerequisite_topic_id) [pk]
+  }
+}
+
+// =====================================================================
+// EJERCICIOS Y ASIGNACIONES
+// =====================================================================
+
+Table exercise {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  topic_id        uuid       [not null, ref: > topic.id]
+  source          varchar    [not null, default: 'SYSTEM', note: 'SYSTEM | TEACHER_AUTHORED | LLM_GENERATED']
+  created_by_teacher_id uuid [ref: > teacher.id]
+  content         jsonb      [not null, note: '{ prompt, canonical_steps[], expected_answer, hints[] }']
+  language        varchar    [not null, default: 'es']
+  irt_a           float      [not null, default: 1.0]
+  irt_b           float      [not null, default: 0.0]
+  irt_calibrated_at timestamptz
+  status          varchar    [not null, default: 'ACTIVE', note: 'DRAFT | ACTIVE | DEPRECATED']
+  created_at      timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (topic_id, source)
+    (topic_id, status)
+  }
+}
+
+Table assignment {
+  id                    uuid [pk, default: `gen_random_uuid()`]
+  course_id             uuid [ref: > course.id, note: 'asignación al curso completo']
+  created_by_teacher_id uuid [not null, ref: > teacher.id]
+  title                 varchar [not null]
+  reason                varchar [not null, note: 'TEACHER_MANUAL | PRACTICE_RECOMMENDER']
+  due_at                timestamptz
+  created_at            timestamptz [not null, default: `now()`]
+
+  Indexes {
+    course_id
+    created_by_teacher_id
+  }
+}
+
+Table assignment_target {
+  assignment_id   uuid       [not null, ref: > assignment.id]
+  student_id      uuid       [not null, ref: > student.id]
+  status          varchar    [not null, default: 'PENDING', note: 'PENDING | IN_PROGRESS | DONE']
+
+  Indexes {
+    (assignment_id, student_id) [pk]
+    student_id
+  }
+  Note: 'Si vacío para una assignment con course_id seteado, aplica a todo el curso.'
+}
+
+Table assignment_exercise {
+  assignment_id   uuid       [not null, ref: > assignment.id]
+  exercise_id     uuid       [not null, ref: > exercise.id]
+  sequence        int        [not null]
+
+  Indexes {
+    (assignment_id, sequence) [pk]
+  }
+}
+
+// =====================================================================
+// INTENTOS Y TELEMETRÍA RELACIONAL
+// =====================================================================
+
+Table attempt {
+  id                  uuid       [pk, default: `gen_random_uuid()`]
+  assignment_id       uuid       [ref: > assignment.id]
+  exercise_id         uuid       [not null, ref: > exercise.id]
+  student_id          uuid       [not null, ref: > student.id]
+  course_id           uuid       [not null, ref: > course.id]
+  input_mode          varchar    [not null, note: 'DIGITAL | PHOTO_OCR']
+  status              varchar    [not null, default: 'PENDING', note: 'PENDING | PENDING_OCR | OCR_DONE | CLASSIFIED | LOW_CONFIDENCE_REVIEW']
+  final_answer        text
+  is_correct          boolean
+  classifier_source   varchar    [note: 'RULE | LLM | OCR_PASSTHROUGH']
+  error_tag_id        uuid       [ref: > error_tag.id]
+  confidence          float
+  ocr_confidence      float
+  ocr_provider        varchar    [note: 'GEMINI | CLAUDE']
+  llm_job_id          uuid
+  trace_id            uuid       [not null]
+  created_at          timestamptz [not null, default: `now()`]
+  classified_at       timestamptz
+
+  Indexes {
+    student_id
+    course_id
+    (exercise_id, created_at)
+    (assignment_id, student_id)
+    error_tag_id
+  }
+}
+
+Table attempt_step {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  attempt_id      uuid       [not null, ref: > attempt.id]
+  step_index      int        [not null]
+  content_latex   text       [not null]
+  duration_ms     int
+  is_correct      boolean
+  error_subtag    varchar
+  created_at      timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (attempt_id, step_index) [unique]
+  }
+}
+
+Table error_tag {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  code            varchar    [unique, not null, note: 'ej. SUB_BORROW_FORGOT_DECREMENT']
+  topic_scope     varchar    [note: 'NULL = aplica multi-topic']
+  description     text       [not null]
+  severity        varchar    [not null, default: 'MED', note: 'LOW | MED | HIGH']
+  created_at      timestamptz [not null, default: `now()`]
+  Note: 'Sincronizado con docs/error-taxonomy.md y con prompts del ai-engine.'
+}
+
+// =====================================================================
+// MASTERY
+// =====================================================================
+
+Table student_topic_mastery {
+  student_id      uuid       [not null, ref: > student.id]
+  topic_id        uuid       [not null, ref: > topic.id]
+  p_known         float      [not null, default: 0.3]
+  p_slip          float      [not null, default: 0.1]
+  p_guess         float      [not null, default: 0.2]
+  p_transit       float      [not null, default: 0.1]
+  attempts_count  int        [not null, default: 0]
+  last_attempt_at timestamptz
+  trend_7d        float      [note: 'delta de p_known en últimos 7 días, recalculado por Alert Generator']
+  updated_at      timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (student_id, topic_id) [pk]
+    topic_id
+    last_attempt_at
+  }
+}
+
+// =====================================================================
+// ALERTS
+// =====================================================================
+
+Table teacher_alert {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  teacher_id      uuid       [not null, ref: > teacher.id]
+  course_id       uuid       [not null, ref: > course.id]
+  topic_id        uuid       [ref: > topic.id]
+  student_id      uuid       [ref: > student.id]
+  alert_type      varchar    [not null, note: 'AT_RISK_STUDENT | COMMON_ERROR_IN_TOPIC | STUDENT_DROP | UNIT_OFF_TRACK']
+  severity        varchar    [not null, default: 'MED', note: 'LOW | MED | HIGH']
+  payload         jsonb      [not null]
+  created_at      timestamptz [not null, default: `now()`]
+  resolved_at     timestamptz
+  resolved_by     uuid       [ref: > teacher.id]
+
+  Indexes {
+    (teacher_id, resolved_at)
+    (course_id, alert_type, created_at)
+    (alert_type, topic_id, student_id, created_at) [note: 'usado por Alert Generator para dedup diaria']
+  }
+}
+
+// =====================================================================
+// INTEGRACIONES SIS/LMS  (Google Classroom, Teams Edu, Clever, CSV)
+// =====================================================================
+
+Table school_integration {
+  id                      uuid       [pk, default: `gen_random_uuid()`]
+  school_id               uuid       [not null, ref: > school.id]
+  provider                varchar    [not null, note: 'GOOGLE_CLASSROOM | MS_TEAMS_EDU | CLEVER | CLASSLINK | CSV_MANUAL']
+  status                  varchar    [not null, default: 'DRAFT', note: 'DRAFT | CONNECTED | SYNCING | ERROR | DISABLED']
+  cadence                 varchar    [not null, default: 'MANUAL', note: 'MANUAL | DAILY | HOURLY']
+  config                  jsonb      [not null, default: `'{}'::jsonb`, note: 'OAuth tokens cifrados con AWS KMS, district_id, scopes, domain']
+  last_sync_at            timestamptz
+  last_sync_error         text
+  created_by_teacher_id   uuid       [ref: > teacher.id]
+  created_at              timestamptz [not null, default: `now()`]
+  updated_at              timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (school_id, provider) [unique]
+    status
+  }
+}
+
+Table external_id_map {
+  id                      uuid       [pk, default: `gen_random_uuid()`]
+  school_integration_id   uuid       [not null, ref: > school_integration.id]
+  provider                varchar    [not null]
+  external_entity_type    varchar    [not null, note: 'STUDENT | TEACHER | COURSE | ENROLLMENT']
+  external_id             varchar    [not null]
+  internal_entity_type    varchar    [not null]
+  internal_entity_id      uuid       [not null]
+  first_seen_at           timestamptz [not null, default: `now()`]
+  last_seen_at            timestamptz [not null, default: `now()`]
+  deleted_at              timestamptz [note: 'soft-delete cuando el upstream lo elimina; re-aparición puede reactivar']
+
+  Indexes {
+    (provider, external_entity_type, external_id, school_integration_id) [unique]
+    (internal_entity_type, internal_entity_id)
+  }
+  Note: 'Permite re-sync idempotente: si el externalId ya existe → UPSERT en interno, no se duplica.'
+}
+
+// =====================================================================
+// INVITACIONES (clase y plataforma)
+// =====================================================================
+
+Table classroom_invite {
+  id              uuid       [pk, default: `gen_random_uuid()`]
+  course_id       uuid       [not null, ref: > course.id]
+  email           varchar    [not null]
+  role            varchar    [not null, note: 'STUDENT | TEACHER | PARENT']
+  token           varchar    [unique, not null]
+  expires_at      timestamptz [not null]
+  accepted_at     timestamptz
+  created_at      timestamptz [not null, default: `now()`]
+
+  Indexes {
+    course_id
+    email
+  }
+}
+
+// =====================================================================
+// v8.0 EXTENSIONS — K-12 + 2540 errores (2026-05-18)
+// Aditivo sobre v7. Cambios: Domain, Subdomain, OfficialOACode, ErrorTag extendido.
+// Migración Prisma asociada: v8_full_k12_taxonomy.
+// =====================================================================
+
+Table domain {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  code        varchar    [unique, not null, note: 'ARITH | INT | FRACT | DEC | RATIO | ALGEBRA | POW | FUNC | GEOM | GEOM3D | TRIG | STAT | DATA | LOG | SEQ | COORD | TRANSV | SPECIAL']
+  name        varchar    [not null]
   description text
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
+  created_at  timestamptz [not null, default: `now()`]
+
+  Indexes {
+    code
+  }
+  Note: '19 dominios matemáticos cubriendo K-12 + transversales + especiales.'
 }
 
-Table skill_bkt_params {
-  id text [pk]
-  skill_id text [unique, not null]
-  p_l0 float [not null]
-  p_t float [not null]
-  p_s float [not null]
-  p_g float [not null]
+Table subdomain {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  domain_id   uuid       [not null, ref: > domain.id]
+  code        varchar    [not null, note: 'Único por domain. Ej. ADD, SUB, MUL, COMPARE, BORROW.']
+  name        varchar    [not null]
+  description text
+  created_at  timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (domain_id, code) [unique]
+  }
+  Note: '~120 subdomains totales. Cada uno tiene 1 rule strategy y ~10-50 errores.'
 }
 
-Table items {
-  id text [pk]
-  skill_id text [not null]
-  content jsonb [not null]
-  irt_a float [not null]
-  irt_b float [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-}
+Table official_oa_code {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  code        varchar    [unique, not null, note: 'MA<grade> OA <number>. Ej. MA05 OA 01']
+  description text       [not null]
+  grade       int        [not null, note: '1-12 (G1..G12M = 1..12)']
+  source_url  varchar    [note: 'URL de curriculumnacional.cl']
+  scraped_at  timestamptz
+  created_at  timestamptz [not null, default: `now()`]
 
-Table attempts {
-  id text [pk]
-  student_id text [not null]
-  item_id text
-  is_correct boolean [not null]
-  error_type text
-  classifier_source text [not null]
-  confidence float
-  llm_evidence jsonb
-  raw_steps jsonb
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-}
-
-Table student_skill_mastery {
-  id text [pk]
-  student_id text [not null]
-  skill_id text [not null]
-  p_known float [not null]
-  updated_at timestamptz [not null]
-
-  indexes {
-    (student_id, skill_id) [unique]
+  Indexes {
+    grade
   }
 }
 
-Table teacher_alerts {
-  id text [pk]
-  teacher_id text [not null]
-  classroom_id text
-  student_id text
-  message text [not null]
-  resolved boolean [not null]
-  created_at timestamptz [not null]
-  updated_at timestamptz [not null]
-}
+Table topic_oa_code {
+  topic_id          uuid [not null, ref: > topic.id]
+  official_oa_code_id uuid [not null, ref: > official_oa_code.id]
 
-Table practice_assignments {
-  id text [pk]
-  student_id text [not null]
-  items jsonb [not null]
-  due_at timestamptz
-  created_at timestamptz [not null]
-}
-
-Table teacher_classrooms {
-  id text [pk]
-  teacher_id text [not null]
-  classroom_id text [not null]
-  created_at timestamptz [not null]
-
-  indexes {
-    (teacher_id, classroom_id) [unique]
+  Indexes {
+    (topic_id, official_oa_code_id) [pk]
   }
+  Note: 'M:N entre Topic y OfficialOACode. Un topic puede cubrir múltiples OAs.'
 }
 
-Table classroom_invites {
-  id text [pk]
-  classroom_id text [not null]
-  created_by text [not null, note: 'Teacher id who created the invite']
-  code text [unique, not null]
-  use_count int [not null, default: 0]
-  max_uses int [note: 'null = unlimited']
-  expires_at timestamptz
-  created_at timestamptz [not null]
+Table topic_v8_extension {
+  topic_id      uuid       [pk, ref: > topic.id]
+  subdomain_id  uuid       [ref: > subdomain.id]
+  Note: 'En v8 se agrega columna subdomain_id directamente a topic (no en tabla separada). Esto se documenta aquí como referencia.'
 }
 
-Ref: classrooms.school_id > schools.id
-Ref: students.user_id > users.id
-Ref: students.classroom_id > classrooms.id
-Ref: teachers.user_id > users.id
-Ref: parents.user_id > users.id
-Ref: parent_links.parent_id > parents.id
-Ref: parent_links.student_id > students.id
-Ref: skill_bkt_params.skill_id > skills.id
-Ref: items.skill_id > skills.id
-Ref: attempts.student_id > students.id
-Ref: attempts.item_id > items.id
-Ref: student_skill_mastery.student_id > students.id
-Ref: student_skill_mastery.skill_id > skills.id
-Ref: teacher_alerts.teacher_id > teachers.id
-Ref: practice_assignments.student_id > students.id
-Ref: teacher_classrooms.teacher_id > teachers.id
-Ref: teacher_classrooms.classroom_id > classrooms.id
-Ref: classroom_invites.classroom_id > classrooms.id
-Ref: classroom_invites.created_by > teachers.id
+// ErrorTag extendido v8 (ALTER TABLE en migración)
+// Campos nuevos sobre el ErrorTag de v7:
+//   - domain_id (FK → domain.id), NOT NULL
+//   - subdomain_code varchar NOT NULL
+//   - source enum (CURATED | LLM_GENERATED | FIELD_REPORTED) DEFAULT 'CURATED'
+//   - status enum (ACTIVE | DRAFT | DEPRECATED) DEFAULT 'ACTIVE'
+//   - severity enum (LOW | MED | HIGH | CRITICAL) DEFAULT 'MED'
+//   - applicable_grades int[] (postgres array)
+//   - evidence_required text[]
+//   - diagnostic_hint text
+//   - remediation text
+//   - references text[]
+//   - deprecated_by_id uuid (self FK → error_tag.id, nullable)
+//   - created_at, updated_at timestamps
+// Índices nuevos:
+//   - (domain_id, status)
+//   - (source)
+//   - (code) — ya existía como unique
+
+Table exercise_target_error_tag {
+  exercise_id  uuid [not null, ref: > exercise.id]
+  error_tag_id uuid [not null, ref: > error_tag.id]
+
+  Indexes {
+    (exercise_id, error_tag_id) [pk]
+  }
+  Note: 'M:N. Un exercise puede diseñarse para provocar/detectar varios errores.'
+}
+
+// AttemptStep extendido v8:
+//   - error_tag_id uuid (nullable, FK → error_tag.id)
+//     Indica el error asignado al paso específico (granular, no solo a nivel attempt).
+
+// =====================================================================
+// Notas operativas v8
+// =====================================================================
+// 1. El enum TypeScript `error-tags.generated.ts` se genera desde la tabla
+//    error_tag WHERE status = 'ACTIVE'. Ver ADR-113 y script
+//    scripts/codegen-error-tags.ts.
+//
+// 2. Para preservar referential integrity:
+//    - DELETE en domain bloqueado si tiene subdomains o error_tags activos.
+//    - DELETE en subdomain bloqueado si tiene topics o error_tags activos.
+//    - DELETE en error_tag bloqueado: usar UPDATE status='DEPRECATED' + deprecated_by_id.
+//
+// 3. official_oa_code es read-mostly. Se popula vía seeds y se actualiza
+//    cuando MINEDUC publica nuevas bases curriculares.
+//
+// 4. La columna `subdomain_id` en topic puede ser NULL durante la migración
+//    inicial (backfill), pero debe ser NOT NULL post-M14 DoD.

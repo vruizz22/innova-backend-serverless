@@ -19,7 +19,7 @@ import {
 } from '@modules/auth/auth-token.service';
 import { EmailService } from '@modules/auth/email.service';
 import { Role } from '@modules/auth/roles.enum';
-import type { AuthenticatedPrincipal } from '@modules/auth/jwt.strategy';
+import type { SupabaseUser } from '@modules/auth/supabase-jwt.strategy';
 import { LoginDto } from '@modules/auth/dto/login.dto';
 import { RegisterDto } from '@modules/auth/dto/register.dto';
 import { RefreshDto } from '@modules/auth/dto/refresh.dto';
@@ -31,7 +31,7 @@ const scrypt = promisify(scryptCallback);
 type AuthUserRecord = {
   id: string;
   email: string;
-  cognitoSub: string | null;
+  supabaseUid: string | null;
   authRole: string | null;
   passwordHash: string | null;
   passwordResetTokenHash: string | null;
@@ -45,7 +45,7 @@ export interface AuthSessionResponse extends LocalAuthSession {
     email: string;
     role: Role;
     profileId: string | null;
-    cognitoSub: string | null;
+    supabaseUid: string | null;
     tokenVersion: number;
   };
 }
@@ -87,7 +87,7 @@ export class AuthService {
       user.email,
       this.resolveRole(user.authRole),
       user.tokenVersion,
-      user.cognitoSub,
+      user.supabaseUid,
     );
   }
 
@@ -113,7 +113,7 @@ export class AuthService {
       user.email,
       this.resolveRole(user.authRole),
       user.tokenVersion,
-      user.cognitoSub,
+      user.supabaseUid,
     );
   }
 
@@ -131,13 +131,11 @@ export class AuthService {
       user.email,
       this.resolveRole(user.authRole),
       user.tokenVersion,
-      user.cognitoSub,
+      user.supabaseUid,
     );
   }
 
-  async forgotPassword(dto: ForgotPasswordDto): Promise<{
-    message: string;
-  }> {
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {
     const user = await this.findLocalUserOrThrow(dto.email);
     const resetCode = this.generateResetCode();
     const resetTokenHash = await this.hashSecret(resetCode);
@@ -151,7 +149,6 @@ export class AuthService {
       },
     });
 
-    // Encode resetCode as URL-safe token for email link
     const resetToken = Buffer.from(
       JSON.stringify({ email: dto.email, code: resetCode }),
     ).toString('base64url');
@@ -219,40 +216,11 @@ export class AuthService {
     return { message: 'Password updated successfully' };
   }
 
-  async me(principal: AuthenticatedPrincipal): Promise<{
-    user: AuthSessionResponse['user'];
-    principal: AuthenticatedPrincipal;
-  }> {
-    const user = await this.findByPrincipal(principal);
-    return {
-      user: {
-        id: user.id,
-        email: user.email,
-        role: this.resolveRole(user.authRole),
-        profileId: await this.findProfileId(
-          user.id,
-          this.resolveRole(user.authRole),
-        ),
-        cognitoSub: user.cognitoSub,
-        tokenVersion: user.tokenVersion,
-      },
-      principal,
-    };
+  me(user: SupabaseUser): { id: string; email: string; role: string } {
+    return { id: user.prismaUserId, email: user.email, role: user.role };
   }
 
-  async logout(
-    principal: AuthenticatedPrincipal,
-  ): Promise<{ message: string }> {
-    const user = await this.findByPrincipal(principal);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        tokenVersion: { increment: 1 },
-        passwordResetTokenHash: null,
-        passwordResetExpiresAt: null,
-      },
-    });
-
+  logout(_user: SupabaseUser): { message: string } {
     return { message: 'Session revoked successfully' };
   }
 
@@ -261,7 +229,7 @@ export class AuthService {
     email: string,
     role: Role,
     tokenVersion: number,
-    cognitoSub: string | null,
+    supabaseUid: string | null,
   ): Promise<AuthSessionResponse> {
     const session = this.tokenService.buildSession({
       sub,
@@ -277,7 +245,7 @@ export class AuthService {
         email,
         role,
         profileId: await this.findProfileId(sub, role),
-        cognitoSub,
+        supabaseUid,
         tokenVersion,
       },
     };
@@ -290,7 +258,7 @@ export class AuthService {
       select: {
         id: true,
         email: true,
-        cognitoSub: true,
+        supabaseUid: true,
         authRole: true,
         passwordHash: true,
         passwordResetTokenHash: true,
@@ -304,33 +272,6 @@ export class AuthService {
     }
 
     return user;
-  }
-
-  private async findByPrincipal(
-    principal: AuthenticatedPrincipal,
-  ): Promise<AuthUserRecord> {
-    if (principal.prismaUser?.id) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: principal.prismaUser.id },
-        select: {
-          id: true,
-          email: true,
-          cognitoSub: true,
-          authRole: true,
-          passwordHash: true,
-          passwordResetTokenHash: true,
-          passwordResetExpiresAt: true,
-          tokenVersion: true,
-        },
-      });
-      if (user) return user;
-    }
-
-    if (principal.email) {
-      return this.findLocalUserOrThrow(principal.email);
-    }
-
-    throw new NotFoundException('Authenticated user not found');
   }
 
   private resolveRole(authRole: string | null): Role {
@@ -361,7 +302,11 @@ export class AuthService {
       const existing = await this.prisma.student.findFirst({
         where: { userId },
       });
-      if (!existing) await this.prisma.student.create({ data: { userId } });
+      if (!existing) {
+        await this.prisma.student.create({
+          data: { userId, displayName: 'Nuevo Alumno' },
+        });
+      }
     }
   }
 

@@ -166,3 +166,118 @@ Cada ADR documenta una decisión arquitectónica relevante con su contexto, opci
 - ✅ Código auditable por reviewers globales.
 - ✅ Onboarding internacional posible.
 - ❌ Doble idioma en repos (commits/code en inglés, docs en español). Aceptable.
+
+---
+
+# ADRs v7 — refactor estructural (2026-05-17)
+
+> Estos ADR son **vigentes** y supersede cualquier decisión previa en conflicto. Referencia: `docs/MASTER_PLAN_v7.md`.
+
+---
+
+## ADR-101: Supabase Auth reemplaza Cognito y JWT custom
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** El prototipo usaba JWT custom con tokens en localStorage (XSS-vulnerable). Docs hablaban de Cognito pero el código nunca lo integró. Mantener auth artesanal nos cuesta tiempo y bloquea features como SSO con Google/Microsoft que los colegios piden.
+**Decisión:** Supabase Auth para los 3 clientes (web + mobile-student + mobile-parent). El backend NestJS valida JWT (RS256) contra el JWKS endpoint de Supabase (`https://<project>.supabase.co/auth/v1/.well-known/jwks.json`). Rol del usuario en `app_metadata.role` (custom claim seteado por Postgres trigger en signup). `User` local se obtiene via `prisma.user.upsert({ where: { supabaseUid } })` — sin auto-link por email para usuarios pre-existentes (no hay producción). Linking por email aplica sólo para roster sync de Google Classroom (ADR-108) vía `ExternalIdMap`.
+**Consecuencias:**
+- ✅ Cookies httpOnly nativo con `@supabase/ssr` en Next.js. No más localStorage tokens.
+- ✅ Google/Microsoft OAuth out-of-the-box → necesario para integración SIS/LMS (ADR-108).
+- ✅ Auth + DB + RLS en un solo proveedor reduce superficie operativa.
+- ❌ Vendor lock-in moderado: `auth.users` vive en Supabase. Mitigado porque la entidad de negocio es `User` en nuestro Postgres (Supabase es sólo identity provider).
+- ✅ Cutover en un único PR (sin coexistencia con Cognito) porque no hay usuarios reales. Sin fallback HS256 — JWKS RS256 directo.
+
+---
+
+## ADR-102: Supabase Postgres reemplaza Neon
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** Neon nos servía bien (branching para CI, pgbouncer). Pero al adoptar Supabase Auth (ADR-101), tener la DB de aplicación en el mismo proyecto Supabase nos da RLS multi-tenant nativo, pgbouncer transaction mode incluido, y un solo dashboard para ops.
+**Decisión:** Apuntar `DATABASE_URL` (backend + ai-engine) a Supabase Postgres desde M8, en el mismo PR que el cutover de auth. Sin `pg_dump` desde Neon: no hay datos importantes que preservar. `pnpm prisma migrate deploy` desde cero contra Supabase, seeds vía `prisma db seed`. Proyecto Neon se elimina en el mismo PR. En dev seguimos con Postgres en docker-compose (sin Supabase local en MVP). RLS se enciende en M12 una vez los clientes consumen Supabase Auth.
+**Consecuencias:**
+- ✅ RLS aplicable sobre tablas user-facing usando `auth.uid()` desde el JWT Supabase.
+- ✅ Backups diarios y point-in-time recovery incluidos.
+- ✅ Costo más predecible (caps duros del free tier vs. pago-por-uso de Neon).
+- ✅ Cutover trivial al no haber datos productivos (un solo PR, cero downtime relevante).
+- ❌ Perdemos el branching DB de Neon. Mitigación: usar un segundo proyecto Supabase como staging si CI lo requiere.
+
+---
+
+## ADR-103: Una sola Next.js app con route groups (no 3 apps separadas)
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** v6 tenía 3 apps Next.js (`practice`, `teacher`, `parent`) duplicando `AuthPage`, `tsconfig`, `next.config`, design tokens. Cada deploy en Vercel era un proyecto distinto. No compartían sesión. ~60% del código necesita reescritura.
+**Decisión:** Una sola app `apps/web` Next.js 14 App Router con route groups `(student)`, `(teacher)`, `(parent)`, `(marketing)`, `(auth)`. Middleware role-based maneja redirects. Subdominios viejos `practice|profe|padres.superprofes.app` reciben redirect 301 a `app.superprofes.app/...`.
+**Consecuencias:**
+- ✅ Una sola sesión Supabase, un solo deploy Vercel, un solo CI.
+- ✅ Design system real consumido como package, no copiado a `public/` de cada app.
+- ✅ Onboarding simplificado: un alumno que cambia de rol (caso "alumno también monitor de un curso") no requiere re-login en otro subdominio.
+- ❌ Bundle más grande para usuarios que sólo usan una sección. Mitigado por route group code-splitting nativo de App Router.
+- ❌ Rate-limiting global por dominio (no por rol) — aceptable en MVP.
+
+---
+
+## ADR-104: Mobile Expo separado (student / parent)
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** Profesores trabajan desde notebook/PC, no necesitan app nativa. Alumnos necesitan cámara para OCR de pasos manuscritos. Apoderados consumen push notifications de progreso. Compartir un único Expo entre student/parent agrega complejidad sin valor.
+**Decisión:** Dos apps Expo independientes (`apps/mobile-student`, `apps/mobile-parent`), cada una con su build en EAS, comparten `packages/api-client`, `packages/supabase`, `packages/ui` (RN-compatible). No habrá Expo para teacher en MVP.
+**Consecuencias:**
+- ✅ Cada app optimiza su UX nativa sin if/else por rol.
+- ✅ Push notifications segmentadas por audiencia.
+- ❌ 2 builds EAS = 2× build minutes. Mitigado por triggers manuales (tag `mobile-v*`), no en cada merge.
+- ⏳ Decisión Apple Developer Account ($99/año) pendiente — sin él, MVP mobile es Android-only.
+
+---
+
+## ADR-105: Refactor modelo de datos a Subject/Curriculum/Unit/Topic/Enrollment/Exercise/Step
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** Schema v6 (`Skill / Item / Attempt / StudentSkillMastery / Classroom`) modela bien intentos de items individuales pero **no** modela el flujo pedagógico Profesor → Curso → Unidades curriculares → Temas → Ejercicios → Pasos. No escala a colegios completos ni a multi-materia.
+**Decisión:** Migración Prisma "v7-domain-model" (M10) que introduce `Organization`, `Subject`, `Curriculum`, `Unit`, `Topic`, `Enrollment`, `Exercise` (reemplaza `Item`, distingue `source: SYSTEM | TEACHER_AUTHORED | LLM_GENERATED`), `Assignment` (reemplaza stub `PracticeAssignment`), `AttemptStep` (reemplaza `Attempt.rawSteps Json`), `StudentTopicMastery` (reemplaza `StudentSkillMastery`), `ErrorTag` (single source of truth de tipos de error). Detalle en `innova-backend-serverless/docs/postgresql.dbml` v7.1.
+**Consecuencias:**
+- ✅ Soporta multi-materia (Subject) y multi-grado (Unit.grade_level) sin nuevos refactors.
+- ✅ Análisis procedural fino via `AttemptStep` (paso a paso).
+- ✅ Curriculum portable (DBML compatible con Lengua/Ciencias).
+- ❌ Migración compleja con backfill de `Attempt.rawSteps Json` → `AttemptStep[]`. Mitigado por script Node validado en staging antes de prod.
+- ❌ DBML doc se vuelve fuente de verdad — disciplina necesaria para mantener paridad con Prisma.
+
+---
+
+## ADR-106: AI engine — cerrar Alert Generator + OCR feedback loop antes de pilotear
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** El drawio `03-dual-ai-pipeline.drawio` define 4 layers (Online BKT, Nightly calibration, On-demand Recommender, Hourly Alerts). Hoy faltan el Alert Generator (Layer 4) y el cierre del loop OCR → Attempts. Sin Alert Generator el profe no recibe feedback; sin el loop OCR, las fotos de los alumnos no entran al pipeline real.
+**Decisión:** M11 entrega ambos: `src/pipeline/hourly_alerts.py` (cron horario, 4 tipos de alerta con dedup diario) y modificación de `src/pipeline/ocr_worker.py` para publicar a SQS `attempt-reprocess-queue` que el backend consume y re-dispatcha al Rule Engine. Recommender (Fisher info) vive en backend `AssignmentService`, no en ai-engine.
+**Consecuencias:**
+- ✅ Demo end-to-end completa: alumno saca foto → en <2 min está clasificada y mastery actualizada.
+- ✅ Profe recibe alertas relevantes en <1h sin tener que pollear.
+- ❌ Costos Lambda crecen (Alert Generator corre 24× al día). Aceptable: estimado <$1/mes con 1000 alumnos.
+
+---
+
+## ADR-107: Smoke testing — Playwright MCP + screenshots vs Design System
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** "AI slop" en el prototipo en parte por falta de feedback visual automatizado: agentes generaban UI sin validar que se viera como el design system. El Design System tiene `SuperProfes-Design-System/preview/*.html` ya curado por Victor.
+**Decisión:** Cada PR de UI corre Playwright MCP sobre el flujo afectado, captura screenshot, compara contra `SuperProfes-Design-System/preview/<componente>.png` con tolerancia 5% (bajar a 2% post-estabilización). Los baselines se actualizan sólo en PRs etiquetadas `design-system-update`. Detalle en `innova-clients/docs/SMOKE_TESTING.md`.
+**Consecuencias:**
+- ✅ Drift visual detectado en CI antes de merge.
+- ✅ Agentes (incluido Claude Code) tienen un check objetivo: "¿se parece al preview?".
+- ❌ Tests visuales son frágiles con animaciones — mitigar con `prefersReducedMotion` en tests.
+- ❌ Browsers Playwright pesados en cache — usar `actions/cache` para `~/.cache/ms-playwright`.
+
+---
+
+## ADR-108: Integraciones con sistemas de colegio (Google Classroom, MS Teams Edu, CSV)
+
+**Estado:** Accepted (2026-05-17)
+**Contexto:** Colegios reales tienen 200-1000 alumnos. Si el profe debe crear cada alumno y cada curso a mano, el onboarding muere. Los colegios chilenos usan principalmente Google Classroom (público), Microsoft Teams Education (particulares) o sistemas locales (Napsis, Colegium). Internacionalmente: Clever y ClassLink son los dos SIS dominantes.
+**Decisión:** Adapters por proveedor en `innova-backend-serverless/src/modules/integrations/<provider>/`, todos implementan `RosterSyncPort`. v7 implementa Google Classroom + CSV bulk import. MS Teams Edu en M17 post-piloto. Clever/ClassLink documentamos el port pero no implementamos (no es mercado MVP). Modelo de datos extendido con `Organization`, `SchoolIntegration` (config + tokens cifrados via AWS KMS), `ExternalIdMap` (puente para re-sync idempotente). SSO con Google/Microsoft via Supabase Auth (ADR-101) — cuando alumno entra por SSO, backend usa `ExternalIdMap` para ligar al Student preexistente del roster sync.
+**Consecuencias:**
+- ✅ Onboarding de un colegio de 500 alumnos toma minutos (1 OAuth flow + 1 sync), no semanas.
+- ✅ Datos del alumno minimizados al sync (email + nombre + curso — nunca foto/RUT/dirección).
+- ✅ `ExternalIdMap` con `deletedAt` soft-delete soporta correcciones del upstream sin perder historial.
+- ❌ Dependencia de rate limits externos (Google Classroom 50 req/s) — mitigada con queueing y backoff.
+- ❌ MS Teams Education requiere tenant verification que puede tomar semanas — anotado como riesgo en master plan §14.6.
+- ⏳ Cumplimiento Ley 21.180 (Chile) y COPPA: consentimiento del colegio cubre el sync; consentimiento individual del apoderado sólo si onboardeamos sin SIS (caso CSV manual con datos no provenientes de plataforma escolar oficial).

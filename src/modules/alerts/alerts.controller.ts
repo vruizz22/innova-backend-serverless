@@ -22,10 +22,14 @@ export class AlertsController {
   constructor(private readonly alertsService: AlertsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'List active alerts by classroom' })
-  @ApiQuery({ name: 'classroomId' })
-  list(@Query('classroomId') classroomId: string) {
-    return this.alertsService.findByClassroom(classroomId);
+  @ApiOperation({ summary: 'List active alerts by course' })
+  @ApiQuery({ name: 'courseId', required: false })
+  @ApiQuery({ name: 'classroomId', required: false })
+  list(
+    @Query('courseId') courseId?: string,
+    @Query('classroomId') classroomId?: string,
+  ) {
+    return this.alertsService.findByCourse(courseId ?? classroomId ?? '');
   }
 
   @Post()
@@ -33,22 +37,31 @@ export class AlertsController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['classroomId', 'message', 'teacherId'],
+      required: ['courseId', 'teacherId', 'alertType'],
       properties: {
-        classroomId: { type: 'string' },
-        message: { type: 'string' },
+        courseId: { type: 'string' },
         teacherId: { type: 'string' },
+        alertType: { type: 'string' },
+        topicId: { type: 'string' },
+        studentId: { type: 'string' },
+        severity: { type: 'string', enum: ['LOW', 'MED', 'HIGH'] },
+        payload: { type: 'object' },
       },
     },
   })
   create(
-    @Body() body: { classroomId: string; message: string; teacherId: string },
+    @Body()
+    body: {
+      courseId: string;
+      teacherId: string;
+      alertType: string;
+      topicId?: string;
+      studentId?: string;
+      severity?: string;
+      payload?: Record<string, unknown>;
+    },
   ) {
-    return this.alertsService.create(
-      body.classroomId,
-      body.message,
-      body.teacherId,
-    );
+    return this.alertsService.create(body);
   }
 
   @Patch(':id/resolve')

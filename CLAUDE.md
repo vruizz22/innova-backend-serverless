@@ -1,7 +1,12 @@
 # CLAUDE.md — innova-backend-serverless
 
 > Repo-specific instructions for Claude Code. Inherits all rules from `~/.claude/CLAUDE.md`.
-> Stack: NestJS + TypeScript strict + Prisma + Mongoose + AWS Lambda + SQS.
+> **Plan vigente:** ver `../docs/MASTER_PLAN_v7.md` y `./docs/PLAN_v7_ADDENDUM.md`.
+> Stack v7: NestJS + TypeScript strict + Prisma + Mongoose + AWS Lambda + SQS + **Supabase Auth (JWKS)** + **Supabase Postgres** (post-M12).
+
+## [0] REGLA OPERATIVA — install-by-user (CRÍTICA)
+
+El agente **NO ejecuta**: `pnpm install/add`, `prisma migrate/generate/db seed`, `serverless deploy/remove`, `docker compose up`, builds NestJS, tests E2E completos. Los entrega en bloque ` ```bash ` para que Victor los corra y pegue output. **Sí ejecuta**: `Read`/`grep`/`git status|log|diff`, edición de archivos, tests unitarios cortos (`pnpm jest path/file.spec.ts`).
 
 ---
 
@@ -64,14 +69,20 @@ src/
 - All Prisma queries in `*.repository.ts` files. Repositories inject `PrismaService` directly.
 - No raw SQL unless justified by performance (document in a comment with the query plan).
 
-Key tables (from `docs/postgresql.dbml`):
+**Modelo de datos v7 (post-M10, ver master plan §4):**
 
-- `Skill` — `id, topic, gradeLevel, prerequisites[], description`
-- `Item` — `id, skillId, content (Json), irtDifficulty, irtDiscrimination`
-- `Attempt` — `id, studentId, itemId, rawSteps (Json), finalAnswer, isCorrect, errorType?, classifierSource, confidence?, llmJobId?`
-- `StudentSkillMastery` — `@@id([studentId, skillId])`, `pKnown, pSlip, pGuess, pTransit, attemptsCount`
-- `TeacherAlert` — `alertType, classroomId, payload (Json)`
-- `PracticeAssignment` — `studentId, itemIds[], reason, assignedAt`
+- `School`, `Subject`, `Curriculum`, `Unit`, `Topic` (+ prerequisites, kc_ids) — currículo escalable multi-materia.
+- `Course` (ex-`Classroom`, ahora con `subjectId, gradeLevel, academicYear`), `CourseTeacher`, `Enrollment` (alumno↔curso↔año).
+- `Exercise` (ex-`Item`, con `source: SYSTEM|TEACHER_AUTHORED|LLM_GENERATED`, `topicId`, `irtA, irtB`).
+- `Assignment` (ex-`PracticeAssignment`, ahora persistido real: `createdByTeacherId`, `courseId|studentIds[]`, `dueAt`, `reason: TEACHER_MANUAL|PRACTICE_RECOMMENDER`).
+- `Attempt` (+ `assignmentId, courseId, inputMode: DIGITAL|PHOTO_OCR, ocrConfidence?, status`).
+- `AttemptStep` (nuevo) — desglose paso a paso, reemplaza `Attempt.rawSteps Json`.
+- `StudentTopicMastery` (ex-`StudentSkillMastery`, + `trend7d` para alerts).
+- `TeacherAlert` (+ `topicId?, studentId?, severity: LOW|MED|HIGH`).
+- `ErrorTag` (nuevo) — fuente de verdad de tipos de error, sincronizada con ai-engine via export.
+- `User.supabase_uid` (reemplaza `cognitoSub`).
+
+Source of truth documental: `docs/postgresql.dbml` (debe reescribirse **antes** de la migración Prisma v7).
 
 ---
 
@@ -79,12 +90,13 @@ Key tables (from `docs/postgresql.dbml`):
 
 Path: `src/rules-engine/`
 
-- One **Strategy class per topic**: `SubtractionBorrowStrategy`, `AdditionCarryStrategy`, etc.
+- One **Strategy class per topic**: `SubtractionBorrowStrategy`, `AdditionCarryStrategy`, `FractionSameDenomStrategy`, etc.
 - Each implements `RuleStrategy` interface: `classify(attempt: NormalizedAttempt): ErrorClassification`.
-- `RuleEngineFactory` maps `skill.topic → RuleStrategy` (Factory pattern).
-- Error types: string literal union defined in `src/shared/domain/error-types.ts` (single source of truth, shared with `innova-ai-engine` via docs).
-- Coverage target: **≥75% of real attempts** classified as non-UNCLASSIFIED.
-- **No LLM calls in this module** — UNCLASSIFIED exits to SQS `llm-classify-queue`.
+- `RuleEngineFactory` maps `topic.code → RuleStrategy` (Factory pattern). En v7 el mapping es `Topic` (no `Skill`).
+- Error types: enum en `src/shared/domain/error-types.ts` sincronizado con tabla `ErrorTag` y con la taxonomía del ai-engine (`docs/error-taxonomy.md`). **Single source of truth.**
+- Coverage target: **≥75% of real attempts** clasificados como non-UNCLASSIFIED.
+- **No LLM calls in this module** — UNCLASSIFIED sale a SQS `llm-classify-queue`.
+- **3 strategies obligatorias en M11**: `subtraction_borrow`, `addition_carry`, `fraction_same_denom`. Sin ellas el rule engine no clasifica.
 
 ---
 
@@ -129,12 +141,16 @@ SQS Standard (ocr-queue):
 
 ---
 
-## [8] Cognito JWT guard
+## [8] Supabase JWT guard (v7, reemplaza Cognito)
 
-- `CognitoGuard` implements `CanActivate`, validates `Authorization: Bearer <token>` via Cognito JWKS endpoint.
-- User pool and client ID from `ConfigService` (not hardcoded).
-- `@Roles('STUDENT' | 'TEACHER' | 'PARENT' | 'ADMIN')` decorator enforces authorization.
-- `@CurrentUser()` param decorator extracts typed `CognitoUser` from request.
+- `SupabaseJwtStrategy` implementa `CanActivate`, valida `Authorization: Bearer <token>` contra JWKS de Supabase: `https://<project>.supabase.co/auth/v1/.well-known/jwks.json`. Sólo RS256 — no se usa HS256 ni `SUPABASE_JWT_SECRET`.
+- `SUPABASE_URL` desde `ConfigService` (no hardcodear).
+- `@Roles('STUDENT' | 'TEACHER' | 'PARENT' | 'ADMIN')` lee `role` desde `user.app_metadata.role` (custom claim seteado por trigger Postgres en `auth.users` en signup).
+- `@CurrentUser()` extrae `SupabaseUser { id (sub UUID), email, role, metadata }`.
+- **Upsert de User local**: `prisma.user.upsert({ where: { supabaseUid } })`. No hay auto-link por email para usuarios pre-existentes (cero prod). El linking por email aplica **sólo** para roster sync de Google Classroom (ADR-108) vía `ExternalIdMap`.
+- Cognito (`CognitoGuard`, `cognito.adapter.ts`, envs `COGNITO_*`) ya fue borrado en el PR de corte M8 — no debe reaparecer.
+
+Doc detallado: `docs/auth-integration-supabase.md`.
 
 ---
 
@@ -156,14 +172,15 @@ See `docs/prompt/01-innova-backend-serverless-testing.md` for full test spec.
 ## [10] Environment variables (validated at boot)
 
 ```env
-DATABASE_URL=           # Neon Postgres connection string
-MONGODB_URI=            # MongoDB Atlas M0 connection string
-COGNITO_USER_POOL_ID=
-COGNITO_CLIENT_ID=
-COGNITO_REGION=
+DATABASE_URL=                 # Supabase Postgres desde M8 (sin Neon)
+MONGODB_URI=                  # MongoDB Atlas M0
+SUPABASE_URL=                 # https://<project>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=    # server-only, admin operations + bypass RLS
+SUPABASE_ANON_KEY=            # opcional, queries directas desde el backend
 SQS_ATTEMPT_STREAM_URL=
 SQS_LLM_CLASSIFY_URL=
 SQS_OCR_QUEUE_URL=
+SQS_ATTEMPT_REPROCESS_URL=    # loop OCR→Attempts
 AWS_REGION=
 LOG_LEVEL=info
 ```
@@ -183,6 +200,8 @@ Validated via `ConfigModule.forRoot({ validationSchema: Joi.object({...}) })` in
 
 ## [12] What NOT to do
 
+- No ejecutar `prisma migrate/generate`, `serverless deploy`, `pnpm install` desde el agente — ver §[0]. Tampoco crees las migraciones `migration.sql` a mano, yo ejecutare `prisma migrate dev` localmente para generarlas correctamente.
+- No volver a `CognitoGuard` ni a JWT custom — auth es Supabase (§[8]).
 - Do not add `@ts-ignore` or `as any` — fix the root cause.
 - Do not call Anthropic SDK from this repo — enqueue to SQS and let `innova-ai-engine` handle it.
 - Do not run synchronous DB calls in async handlers — always `await prisma.*`.
