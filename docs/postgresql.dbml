@@ -440,3 +440,117 @@ Table classroom_invite {
     email
   }
 }
+
+// =====================================================================
+// v8.0 EXTENSIONS — K-12 + 2540 errores (2026-05-18)
+// Aditivo sobre v7. Cambios: Domain, Subdomain, OfficialOACode, ErrorTag extendido.
+// Migración Prisma asociada: v8_full_k12_taxonomy.
+// =====================================================================
+
+Table domain {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  code        varchar    [unique, not null, note: 'ARITH | INT | FRACT | DEC | RATIO | ALGEBRA | POW | FUNC | GEOM | GEOM3D | TRIG | STAT | DATA | LOG | SEQ | COORD | TRANSV | SPECIAL']
+  name        varchar    [not null]
+  description text
+  created_at  timestamptz [not null, default: `now()`]
+
+  Indexes {
+    code
+  }
+  Note: '19 dominios matemáticos cubriendo K-12 + transversales + especiales.'
+}
+
+Table subdomain {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  domain_id   uuid       [not null, ref: > domain.id]
+  code        varchar    [not null, note: 'Único por domain. Ej. ADD, SUB, MUL, COMPARE, BORROW.']
+  name        varchar    [not null]
+  description text
+  created_at  timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (domain_id, code) [unique]
+  }
+  Note: '~120 subdomains totales. Cada uno tiene 1 rule strategy y ~10-50 errores.'
+}
+
+Table official_oa_code {
+  id          uuid       [pk, default: `gen_random_uuid()`]
+  code        varchar    [unique, not null, note: 'MA<grade> OA <number>. Ej. MA05 OA 01']
+  description text       [not null]
+  grade       int        [not null, note: '1-12 (G1..G12M = 1..12)']
+  source_url  varchar    [note: 'URL de curriculumnacional.cl']
+  scraped_at  timestamptz
+  created_at  timestamptz [not null, default: `now()`]
+
+  Indexes {
+    grade
+  }
+}
+
+Table topic_oa_code {
+  topic_id          uuid [not null, ref: > topic.id]
+  official_oa_code_id uuid [not null, ref: > official_oa_code.id]
+
+  Indexes {
+    (topic_id, official_oa_code_id) [pk]
+  }
+  Note: 'M:N entre Topic y OfficialOACode. Un topic puede cubrir múltiples OAs.'
+}
+
+Table topic_v8_extension {
+  topic_id      uuid       [pk, ref: > topic.id]
+  subdomain_id  uuid       [ref: > subdomain.id]
+  Note: 'En v8 se agrega columna subdomain_id directamente a topic (no en tabla separada). Esto se documenta aquí como referencia.'
+}
+
+// ErrorTag extendido v8 (ALTER TABLE en migración)
+// Campos nuevos sobre el ErrorTag de v7:
+//   - domain_id (FK → domain.id), NOT NULL
+//   - subdomain_code varchar NOT NULL
+//   - source enum (CURATED | LLM_GENERATED | FIELD_REPORTED) DEFAULT 'CURATED'
+//   - status enum (ACTIVE | DRAFT | DEPRECATED) DEFAULT 'ACTIVE'
+//   - severity enum (LOW | MED | HIGH | CRITICAL) DEFAULT 'MED'
+//   - applicable_grades int[] (postgres array)
+//   - evidence_required text[]
+//   - diagnostic_hint text
+//   - remediation text
+//   - references text[]
+//   - deprecated_by_id uuid (self FK → error_tag.id, nullable)
+//   - created_at, updated_at timestamps
+// Índices nuevos:
+//   - (domain_id, status)
+//   - (source)
+//   - (code) — ya existía como unique
+
+Table exercise_target_error_tag {
+  exercise_id  uuid [not null, ref: > exercise.id]
+  error_tag_id uuid [not null, ref: > error_tag.id]
+
+  Indexes {
+    (exercise_id, error_tag_id) [pk]
+  }
+  Note: 'M:N. Un exercise puede diseñarse para provocar/detectar varios errores.'
+}
+
+// AttemptStep extendido v8:
+//   - error_tag_id uuid (nullable, FK → error_tag.id)
+//     Indica el error asignado al paso específico (granular, no solo a nivel attempt).
+
+// =====================================================================
+// Notas operativas v8
+// =====================================================================
+// 1. El enum TypeScript `error-tags.generated.ts` se genera desde la tabla
+//    error_tag WHERE status = 'ACTIVE'. Ver ADR-113 y script
+//    scripts/codegen-error-tags.ts.
+//
+// 2. Para preservar referential integrity:
+//    - DELETE en domain bloqueado si tiene subdomains o error_tags activos.
+//    - DELETE en subdomain bloqueado si tiene topics o error_tags activos.
+//    - DELETE en error_tag bloqueado: usar UPDATE status='DEPRECATED' + deprecated_by_id.
+//
+// 3. official_oa_code es read-mostly. Se popula vía seeds y se actualiza
+//    cuando MINEDUC publica nuevas bases curriculares.
+//
+// 4. La columna `subdomain_id` en topic puede ser NULL durante la migración
+//    inicial (backfill), pero debe ser NOT NULL post-M14 DoD.
