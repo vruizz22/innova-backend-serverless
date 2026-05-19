@@ -8,6 +8,29 @@ datasource db {
 }
 
 // =====================================================================
+// ENUMS
+// =====================================================================
+
+enum ErrorSource {
+  CURATED
+  LLM_GENERATED
+  FIELD_REPORTED
+}
+
+enum ErrorStatus {
+  ACTIVE
+  DRAFT
+  DEPRECATED
+}
+
+enum ErrorSeverity {
+  LOW
+  MED
+  HIGH
+  CRITICAL
+}
+
+// =====================================================================
 // AUTH / USERS
 // =====================================================================
 
@@ -201,6 +224,37 @@ model ClassroomInvite {
 }
 
 // =====================================================================
+// TAXONOMÍA DE ERRORES (Domain/Subdomain hierarchy)
+// =====================================================================
+
+model Domain {
+  id          String  @id @default(uuid())
+  code        String  @unique
+  name        String
+  description String?
+
+  subdomains Subdomain[]
+  topics     Topic[]
+  errorTags  ErrorTag[]
+
+  @@map("domains")
+}
+
+model Subdomain {
+  id       String @id @default(uuid())
+  domainId String @map("domain_id")
+  code     String
+  name     String
+
+  domain Domain  @relation(fields: [domainId], references: [id])
+  topics Topic[]
+
+  @@unique([domainId, code])
+  @@index([domainId])
+  @@map("subdomains")
+}
+
+// =====================================================================
 // CURRICULUM (multi-materia, multi-grado)
 // =====================================================================
 
@@ -232,6 +286,18 @@ model Curriculum {
   @@map("curricula")
 }
 
+model OfficialOACode {
+  id          String @id @default(uuid())
+  code        String @unique
+  description String
+  grade       Int
+
+  topics Topic[]
+
+  @@index([grade])
+  @@map("official_oa_codes")
+}
+
 model Unit {
   id           String @id @default(uuid())
   curriculumId String @map("curriculum_id")
@@ -252,6 +318,8 @@ model Unit {
 model Topic {
   id               String    @id @default(uuid())
   unitId           String    @map("unit_id")
+  subdomainId      String?   @map("subdomain_id")
+  domainId         String?   @map("domain_id")
   code             String
   name             String
   description      String?
@@ -262,13 +330,18 @@ model Topic {
   bktCalibratedAt  DateTime? @map("bkt_calibrated_at")
 
   unit          Unit                  @relation(fields: [unitId], references: [id])
+  subdomain     Subdomain?            @relation(fields: [subdomainId], references: [id])
+  domain        Domain?               @relation(fields: [domainId], references: [id])
   exercises     Exercise[]
   prerequisites TopicPrerequisite[]   @relation("TopicPrereqs")
   dependents    TopicPrerequisite[]   @relation("PrereqTopics")
   topicMastery  StudentTopicMastery[]
   alerts        TeacherAlert[]
+  oaCodes       OfficialOACode[]
 
   @@unique([unitId, code])
+  @@index([subdomainId])
+  @@index([domainId])
   @@map("topics")
 }
 
@@ -303,6 +376,7 @@ model Exercise {
   topic               Topic                @relation(fields: [topicId], references: [id])
   attempts            Attempt[]
   assignmentExercises AssignmentExercise[]
+  targetErrorTags     ErrorTag[]           @relation("ExerciseTargetErrors")
 
   @@index([topicId, source])
   @@index([topicId, status])
@@ -393,31 +467,54 @@ model Attempt {
 }
 
 model AttemptStep {
-  id          String   @id @default(uuid())
-  attemptId   String   @map("attempt_id")
-  stepIndex   Int      @map("step_index")
-  contentLatex String  @map("content_latex")
-  durationMs  Int?     @map("duration_ms")
-  isCorrect   Boolean? @map("is_correct")
-  errorSubtag String?  @map("error_subtag")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid())
+  attemptId    String   @map("attempt_id")
+  stepIndex    Int      @map("step_index")
+  contentLatex String   @map("content_latex")
+  durationMs   Int?     @map("duration_ms")
+  isCorrect    Boolean? @map("is_correct")
+  errorSubtag  String?  @map("error_subtag")
+  errorTagId   String?  @map("error_tag_id")
+  createdAt    DateTime @default(now()) @map("created_at")
 
-  attempt Attempt @relation(fields: [attemptId], references: [id])
+  attempt  Attempt   @relation(fields: [attemptId], references: [id])
+  errorTag ErrorTag? @relation(fields: [errorTagId], references: [id])
 
   @@unique([attemptId, stepIndex])
+  @@index([errorTagId])
   @@map("attempt_steps")
 }
 
 model ErrorTag {
-  id          String   @id @default(uuid())
-  code        String   @unique
-  topicScope  String?  @map("topic_scope")
-  description String
-  severity    String   @default("MED")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id               String        @id @default(uuid())
+  code             String        @unique
+  name             String        @default("")
+  topicScope       String?       @map("topic_scope")
+  description      String
+  domainId         String?       @map("domain_id")
+  subdomainCode    String?       @map("subdomain_code")
+  source           ErrorSource   @default(CURATED)
+  status           ErrorStatus   @default(ACTIVE)
+  severity         ErrorSeverity @default(MED)
+  applicableGrades Int[]         @map("applicable_grades")
+  evidenceRequired String[]      @map("evidence_required")
+  diagnosticHint   String?       @map("diagnostic_hint")
+  remediation      String?
+  references       String[]
+  deprecatedById   String?       @map("deprecated_by_id")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
 
-  attempts Attempt[]
+  domain       Domain?    @relation(fields: [domainId], references: [id])
+  deprecatedBy ErrorTag?  @relation("Deprecation", fields: [deprecatedById], references: [id])
+  successors   ErrorTag[] @relation("Deprecation")
 
+  attempts            Attempt[]
+  attemptSteps        AttemptStep[]
+  targetedByExercises Exercise[]    @relation("ExerciseTargetErrors")
+
+  @@index([domainId, status])
+  @@index([source])
   @@map("error_tags")
 }
 
