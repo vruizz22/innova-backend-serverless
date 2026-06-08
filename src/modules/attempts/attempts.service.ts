@@ -41,12 +41,19 @@ export class AttemptsService {
   ): Promise<AttemptResponse> {
     await this.prisma.ensureConnected();
 
-    // Map topicCode to topic record
+    // Map topicCode to topic record (include subdomain for rule engine routing)
     const topic = await this.prisma.topic.findFirst({
       where: { code: dto.topicCode },
+      include: {
+        subdomain: { select: { code: true } },
+        domain: { select: { id: true, code: true } },
+      },
     });
 
-    const classified = this.ruleEngine.classify(dto);
+    const subdomainCode = topic?.subdomain?.code
+      ? `${topic.domain?.code ?? ''}_${topic.subdomain.code}`
+      : 'UNKNOWN';
+    const classified = this.ruleEngine.classify(dto, subdomainCode);
     const isUnclassified = classified.errorType === 'UNCLASSIFIED';
 
     // Find matching ErrorTag
@@ -130,6 +137,8 @@ export class AttemptsService {
         messageBody: {
           id: attempt.id,
           topic: dto.topicCode,
+          domain_id: topic?.domainId ?? null,
+          subdomain_code: topic?.subdomain?.code ?? null,
           problem_statement: problemStatement,
           canonical_solution: String(dto.expectedAnswer),
           raw_steps: dto.rawSteps,
