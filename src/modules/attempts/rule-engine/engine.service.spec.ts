@@ -1,9 +1,6 @@
-import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
+import { type CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 import { RuleEngineFactory } from '@modules/attempts/rule-engine/factory';
-import { SubtractionBorrowStrategy } from '@modules/attempts/rule-engine/strategies/subtraction-borrow.strategy';
-import { AdditionCarryStrategy } from '@modules/attempts/rule-engine/strategies/addition-carry.strategy';
-import { FractionSameDenomStrategy } from '@modules/attempts/rule-engine/strategies/fraction-same-denom.strategy';
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 
 const makeDto = (
   overrides: Partial<Record<string, unknown>>,
@@ -20,11 +17,7 @@ const makeDto = (
   }) as unknown as CreateAttemptDto;
 
 function buildService(): RuleEngineService {
-  const strategy = new SubtractionBorrowStrategy();
-  const addCarry = new AdditionCarryStrategy();
-  const fracSame = new FractionSameDenomStrategy();
-  const factory = new RuleEngineFactory(strategy, addCarry, fracSame);
-  return new RuleEngineService(factory);
+  return new RuleEngineService(new RuleEngineFactory());
 }
 
 describe('RuleEngineService', () => {
@@ -34,64 +27,58 @@ describe('RuleEngineService', () => {
     service = buildService();
   });
 
-  it('delegates to SubtractionBorrowStrategy for T-SUB-BORROW', () => {
+  it('classifies CORRECT via ARITH_SUB strategy', () => {
     const result = service.classify(
-      makeDto({
-        topicCode: 'T-SUB-BORROW',
-        studentAnswer: 27,
-        expectedAnswer: 27,
-      }),
+      makeDto({ studentAnswer: 27, expectedAnswer: 27 }),
+      'ARITH_SUB',
     );
     expect(result.isCorrect).toBe(true);
     expect(result.errorType).toBe('CORRECT');
   });
 
-  it('classifies BORROW_OMITTED_TENS via rule engine', () => {
+  it('classifies ARITH_SUB_BORROW_OMITTED_TENS_G3', () => {
+    // 53-26: without borrow units column → 53-26=33 (wrong, expected 27)
     const result = service.classify(
       makeDto({
-        topicCode: 'T-SUB-BORROW',
         studentAnswer: 33,
         expectedAnswer: 27,
+        minuend: 53,
+        subtrahend: 26,
       }),
+      'ARITH_SUB',
     );
     expect(result.isCorrect).toBe(false);
-    expect(result.errorType).toBe('BORROW_OMITTED_TENS');
+    expect(result.errorType).toBe('ARITH_SUB_BORROW_OMITTED_TENS_G3');
   });
 
-  it('delegates to AdditionCarryStrategy for T-ADD-CARRY', () => {
+  it('classifies CORRECT via ARITH_ADD strategy', () => {
     const result = service.classify(
       makeDto({
-        topicCode: 'T-ADD-CARRY',
         minuend: 38,
         subtrahend: 27,
         expectedAnswer: 65,
         studentAnswer: 65,
       }),
+      'ARITH_ADD',
     );
     expect(result.isCorrect).toBe(true);
     expect(result.errorType).toBe('CORRECT');
   });
 
-  it('delegates to FractionSameDenomStrategy for T-FRAC-SAME-DENOM', () => {
+  it('classifies CORRECT via FRACT_ADDSUB strategy', () => {
     const result = service.classify(
-      makeDto({
-        topicCode: 'T-FRAC-SAME-DENOM',
-        expectedAnswer: 3,
-        studentAnswer: 3,
-        rawSteps: [],
-      }),
+      makeDto({ expectedAnswer: 3, studentAnswer: 3, rawSteps: [] }),
+      'FRACT_ADDSUB',
     );
     expect(result.isCorrect).toBe(true);
   });
 
-  it('falls back to subtraction strategy for unknown topic codes', () => {
+  it('returns UNCLASSIFIED for unknown subdomain code', () => {
     const result = service.classify(
-      makeDto({
-        topicCode: 'UNKNOWN_TOPIC',
-        studentAnswer: 27,
-        expectedAnswer: 27,
-      }),
+      makeDto({ studentAnswer: 99, expectedAnswer: 27 }),
+      'UNKNOWN_SUBDOMAIN',
     );
-    expect(result.isCorrect).toBe(true);
+    expect(result.errorType).toBe('UNCLASSIFIED');
+    expect(result.confidence).toBe(0);
   });
 });
