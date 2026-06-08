@@ -20,10 +20,8 @@ describe('SubtractionBorrowStrategy', () => {
     strategy = new SubtractionBorrowStrategy();
   });
 
-  it('supports subtraction_borrow topic codes', () => {
-    expect(strategy.supports('subtraction_borrow')).toBe(true);
-    expect(strategy.supports('T-SUB-BORROW')).toBe(true);
-    expect(strategy.supports('other_skill')).toBe(false);
+  it('has correct subdomainCode', () => {
+    expect(strategy.subdomainCode).toBe('ARITH_SUB');
   });
 
   it('CORRECT — returns CORRECT when student answer matches expected', () => {
@@ -45,7 +43,7 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 27,
       }),
     );
-    expect(result.errorType).toBe('SUBTRAHEND_MINUEND_SWAPPED');
+    expect(result.errorType).toBe('ARITH_SUB_MINUEND_SUBTRAHEND_SWAPPED_G3');
     expect(result.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
@@ -59,7 +57,7 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 33,
       }),
     );
-    expect(result.errorType).toBe('BORROW_OMITTED_TENS');
+    expect(result.errorType).toBe('ARITH_SUB_BORROW_OMITTED_TENS_G3');
     expect(result.confidence).toBeGreaterThanOrEqual(0.85);
   });
 
@@ -73,7 +71,7 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 72,
       }),
     );
-    expect(result.errorType).toBe('DIGIT_TRANSPOSITION');
+    expect(result.errorType).toBe('ARITH_TRANSV_DIGIT_TRANSPOSITION');
     expect(result.confidence).toBeGreaterThanOrEqual(0.85);
   });
 
@@ -87,11 +85,11 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 270,
       }),
     );
-    expect(result.errorType).toBe('PLACE_VALUE_ERROR');
+    expect(result.errorType).toBe('ARITH_TRANSV_PLACE_VALUE_ERROR');
     expect(result.confidence).toBeGreaterThanOrEqual(0.8);
   });
 
-  it('BASIC_FACT_ERROR — answer differs by ≤2 from expected', () => {
+  it('ARITH_TRANSV_FACT_ERROR — answer differs by ≤2 from expected', () => {
     // expected=27, student writes 25 (off by 2)
     const result = strategy.classify(
       makeDto({
@@ -101,11 +99,11 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 25,
       }),
     );
-    expect(result.errorType).toBe('BASIC_FACT_ERROR');
+    expect(result.errorType).toBe('ARITH_TRANSV_FACT_ERROR');
     expect(result.confidence).toBeGreaterThanOrEqual(0.5);
   });
 
-  it('BORROW_FROM_ZERO_ERROR — detected for numbers with zero in tens', () => {
+  it('ARITH_SUB_BORROW_FROM_ZERO_G3 — detected for numbers with zero in tens', () => {
     // 100 - 27 = 73; student with zero borrow issue
     const result = strategy.classify(
       makeDto({
@@ -115,7 +113,7 @@ describe('SubtractionBorrowStrategy', () => {
         studentAnswer: 83,
       }),
     );
-    expect(result.errorType).toBe('BORROW_FROM_ZERO_ERROR');
+    expect(result.errorType).toBe('ARITH_SUB_BORROW_FROM_ZERO_G3');
   });
 
   it('UNCLASSIFIED — no rule matches', () => {
