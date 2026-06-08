@@ -1,8 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import { type CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 import {
-  RuleClassificationResult,
-  RuleEngineStrategy,
+  type RuleClassificationResult,
+  type RuleEngineStrategy,
 } from '@modules/attempts/rule-engine/strategy.interface';
 
 function gcd(a: number, b: number): number {
@@ -29,14 +28,8 @@ function parseMixed(
   };
 }
 
-@Injectable()
 export class FractionSameDenomStrategy implements RuleEngineStrategy {
-  supports(topicCode: string): boolean {
-    return (
-      topicCode === 'fractions_addsub_same_denom' ||
-      topicCode === 'T-FRAC-SAME-DENOM'
-    );
-  }
+  readonly subdomainCode = 'FRACT_ADDSUB';
 
   classify(payload: CreateAttemptDto): RuleClassificationResult {
     const { expectedAnswer, studentAnswer } = payload;
@@ -63,7 +56,7 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
           // student wrote numerator part correctly but probably also added denominators
           return {
             isCorrect: false,
-            errorType: 'SUM_NUMERATORS_AND_DENOMINATORS',
+            errorType: 'FRACT_ADDSUB_SUM_NUMERATOR_AND_DENOMINATOR_G5',
             confidence: 0.9,
             evidence: [
               `Student likely added both numerators and denominators: ${n1}+${n2}/${d1}+${d2}`,
@@ -80,7 +73,7 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
       if (Number.isInteger(ratio) && ratio > 1) {
         return {
           isCorrect: false,
-          errorType: 'IMPROPER_FRACTION_NOT_REDUCED',
+          errorType: 'FRACT_ADDSUB_IMPROPER_NOT_REDUCED_G5',
           confidence: 0.82,
           evidence: [
             `Answer ${studentAnswer} is ${ratio}× expected ${expectedAnswer} — not reduced`,
@@ -95,7 +88,7 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
     if (expFrac && studentAnswer === expFrac.den && expFrac.num !== 0) {
       return {
         isCorrect: false,
-        errorType: 'INVERTED_FRACTION',
+        errorType: 'FRACT_ADDSUB_INVERTED_FRACTION_G5',
         confidence: 0.85,
         evidence: [
           `Student may have inverted fraction: wrote ${studentAnswer} which matches denominator`,
@@ -112,7 +105,7 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
       if (withoutWhole <= 1) {
         return {
           isCorrect: false,
-          errorType: 'WHOLE_NUMBER_LOST',
+          errorType: 'FRACT_ADDSUB_WHOLE_NUMBER_LOST_G5',
           confidence: 0.88,
           evidence: [
             `Student appears to have lost the whole number part ${mixedMatch.whole}`,
@@ -121,11 +114,11 @@ export class FractionSameDenomStrategy implements RuleEngineStrategy {
       }
     }
 
-    // ARITHMETIC_FACT_ERROR
+    // basic fact error — off by ≤1
     if (Math.abs(studentAnswer - expectedAnswer) <= 1) {
       return {
         isCorrect: false,
-        errorType: 'ARITHMETIC_FACT_ERROR',
+        errorType: 'ARITH_TRANSV_FACT_ERROR',
         confidence: 0.65,
         evidence: [`Answer off by ${Math.abs(studentAnswer - expectedAnswer)}`],
       };
