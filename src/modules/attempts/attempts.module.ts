@@ -1,16 +1,17 @@
 import { Module } from '@nestjs/common';
+
+import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
+import { GeminiVisionAdapter } from '@adapters/math-ocr/gemini-vision.adapter';
+import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
 import { SqsAdapter } from '@adapters/sqs.adapter';
-import { MasteryModule } from '@modules/mastery/mastery.module';
 import { AttemptsController } from '@modules/attempts/attempts.controller';
 import { AttemptsService } from '@modules/attempts/attempts.service';
-import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { RuleEngineFactory } from '@modules/attempts/rule-engine/factory';
-import { SubtractionBorrowStrategy } from '@modules/attempts/rule-engine/strategies/subtraction-borrow.strategy';
-import { AdditionCarryStrategy } from '@modules/attempts/rule-engine/strategies/addition-carry.strategy';
-import { FractionSameDenomStrategy } from '@modules/attempts/rule-engine/strategies/fraction-same-denom.strategy';
-import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
-import { GeminiVisionAdapter } from '@adapters/math-ocr/gemini-vision.adapter';
-import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
+import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
+import { MasteryModule } from '@modules/mastery/mastery.module';
+
+// Strategies are instantiated inside RuleEngineFactory REGISTRY — not injected via DI.
+// To add a new strategy for v8, register it in factory.ts REGISTRY only.
 
 @Module({
   imports: [MasteryModule],
@@ -19,9 +20,6 @@ import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
     AttemptsService,
     RuleEngineService,
     RuleEngineFactory,
-    SubtractionBorrowStrategy,
-    AdditionCarryStrategy,
-    FractionSameDenomStrategy,
     SqsAdapter,
     MathOCROrchestrator,
     GeminiVisionAdapter,
