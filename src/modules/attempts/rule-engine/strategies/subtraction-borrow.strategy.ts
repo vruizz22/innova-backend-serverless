@@ -1,8 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import { type CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 import {
-  RuleClassificationResult,
-  RuleEngineStrategy,
+  type RuleClassificationResult,
+  type RuleEngineStrategy,
 } from '@modules/attempts/rule-engine/strategy.interface';
 
 function digitsOf(n: number): number[] {
@@ -35,11 +34,8 @@ function computeNoBorrowResult(minuend: number, subtrahend: number): number {
   return result;
 }
 
-@Injectable()
 export class SubtractionBorrowStrategy implements RuleEngineStrategy {
-  supports(topicCode: string): boolean {
-    return topicCode === 'subtraction_borrow' || topicCode === 'T-SUB-BORROW';
-  }
+  readonly subdomainCode = 'ARITH_SUB';
 
   classify(payload: CreateAttemptDto): RuleClassificationResult {
     const { expectedAnswer, studentAnswer, rawSteps } = payload;
@@ -51,11 +47,11 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       return { isCorrect: true, errorType: 'CORRECT', confidence: 1.0 };
     }
 
-    // Rule 1: SUBTRAHEND_MINUEND_SWAPPED — student computed subtrahend - minuend
+    // Rule 1: minuend and subtrahend swapped
     if (subtrahend > minuend && studentAnswer === subtrahend - minuend) {
       return {
         isCorrect: false,
-        errorType: 'SUBTRAHEND_MINUEND_SWAPPED',
+        errorType: 'ARITH_SUB_MINUEND_SUBTRAHEND_SWAPPED_G3',
         confidence: 0.95,
         evidence: [
           `Expected ${minuend}-${subtrahend}=${expectedAnswer}; student got ${subtrahend}-${minuend}=${studentAnswer}`,
@@ -63,7 +59,7 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       };
     }
 
-    // Rule 2: BORROW_OMITTED_TENS — subtracted each column independently (no borrow)
+    // Rule 2: borrow omitted — subtracted each column without borrowing
     const noBorrowResult = computeNoBorrowResult(minuend, subtrahend);
     const unitsM = minuend % 10;
     const unitsS = subtrahend % 10;
@@ -72,7 +68,7 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       if (unitsS > unitsM && tensM > 0) {
         return {
           isCorrect: false,
-          errorType: 'BORROW_OMITTED_TENS',
+          errorType: 'ARITH_SUB_BORROW_OMITTED_TENS_G3',
           confidence: 0.93,
           evidence: [
             `Units column: ${unitsM}-${unitsS} done without borrow → answer ${studentAnswer} vs expected ${expectedAnswer}`,
@@ -81,7 +77,7 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       }
     }
 
-    // Rule 3: BORROW_OMITTED_HUNDREDS — hundreds column no borrow
+    // Rule 3: borrow omitted at hundreds column
     const hundredsM = Math.floor(minuend / 100) % 10;
     const hundredsS = Math.floor(subtrahend / 100) % 10;
     const tensForHundreds = Math.floor(minuend / 10) % 10;
@@ -92,40 +88,39 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
     ) {
       return {
         isCorrect: false,
-        errorType: 'BORROW_OMITTED_HUNDREDS',
+        errorType: 'ARITH_SUB_BORROW_OMITTED_HUNDREDS_G3',
         confidence: 0.91,
         evidence: [`Hundreds column ${hundredsM}-${hundredsS} without borrow`],
       };
     }
 
-    // Rule 4: BORROW_FROM_ZERO_ERROR — problem has zero in tens, student didn't propagate
-    // Detects when tens digit is 0 and hundreds exist — student can't borrow from zero
+    // Rule 4: borrowing from zero — tens is 0, hundreds exist, borrow propagation failed
     if (tensM === 0 && hundredsM > 0 && unitsS > unitsM) {
       return {
         isCorrect: false,
-        errorType: 'BORROW_FROM_ZERO_ERROR',
+        errorType: 'ARITH_SUB_BORROW_FROM_ZERO_G3',
         confidence: 0.87,
         evidence: [`Borrow propagation through zero in tens column failed`],
       };
     }
 
-    // Rule 5: PARTIAL_BORROW_ERROR — propagation stopped mid-chain
+    // Rule 5: borrow propagation stopped mid-chain (multiple zeros in minuend)
     const strMinuend = minuend.toString();
     const zeroCount = (strMinuend.match(/0/g) ?? []).length;
     if (zeroCount >= 2 && rawSteps && rawSteps.length > 0) {
       return {
         isCorrect: false,
-        errorType: 'PARTIAL_BORROW_ERROR',
+        errorType: 'ARITH_SUB_BORROW_PROPAGATION_STOP_G3',
         confidence: 0.82,
         evidence: [`Multiple zeros detected; borrow chain likely stopped`],
       };
     }
 
-    // Rule 6: DIGIT_TRANSPOSITION — answer has same digits but swapped
+    // Rule 6: digit transposition
     if (isTranspositionOf(studentAnswer, expectedAnswer)) {
       return {
         isCorrect: false,
-        errorType: 'DIGIT_TRANSPOSITION',
+        errorType: 'ARITH_TRANSV_DIGIT_TRANSPOSITION',
         confidence: 0.88,
         evidence: [
           `Digits of ${studentAnswer} are a transposition of expected ${expectedAnswer}`,
@@ -133,7 +128,7 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       };
     }
 
-    // Rule 7: PLACE_VALUE_ERROR — answer is off by factor of 10
+    // Rule 7: place value error — answer is off by factor of 10
     if (
       studentAnswer === expectedAnswer * 10 ||
       studentAnswer * 10 === expectedAnswer ||
@@ -141,7 +136,7 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
     ) {
       return {
         isCorrect: false,
-        errorType: 'PLACE_VALUE_ERROR',
+        errorType: 'ARITH_TRANSV_PLACE_VALUE_ERROR',
         confidence: 0.85,
         evidence: [
           `Answer ${studentAnswer} is a factor-of-10 shift of expected ${expectedAnswer}`,
@@ -149,11 +144,11 @@ export class SubtractionBorrowStrategy implements RuleEngineStrategy {
       };
     }
 
-    // Rule 8: BASIC_FACT_ERROR — off by small magnitude (≤2), likely fact recall
+    // Rule 8: basic arithmetic fact error — off by ≤2
     if (Math.abs(studentAnswer - expectedAnswer) <= 2) {
       return {
         isCorrect: false,
-        errorType: 'BASIC_FACT_ERROR',
+        errorType: 'ARITH_TRANSV_FACT_ERROR',
         confidence: 0.65,
         evidence: [
           `Answer differs by ${Math.abs(studentAnswer - expectedAnswer)} — likely basic fact recall error`,
