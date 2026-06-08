@@ -1,6 +1,11 @@
 import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import {
+  ErrorSeverity,
+  ErrorSource,
+  ErrorStatus,
+  PrismaClient,
+} from '@prisma/client';
 
 const adapter = new PrismaPg({
   connectionString: process.env['DATABASE_URL']!,
@@ -178,103 +183,273 @@ async function main() {
     `✅ Curriculum: org → school → subject → curriculum → 3 units → 3 topics`,
   );
 
-  // Error Tags (from error-taxonomy.md)
-  const errorTagDefs = [
+  // v8: Domains + Subdomains (MVP subset — full 19-domain catalog via import-error-catalog script)
+  const domainArith = await prisma.domain.upsert({
+    where: { code: 'ARITH' },
+    update: {},
+    create: {
+      id: 'seed-domain-arith',
+      code: 'ARITH',
+      name: 'Aritmética de naturales',
+    },
+  });
+  const domainFract = await prisma.domain.upsert({
+    where: { code: 'FRACT' },
+    update: {},
+    create: { id: 'seed-domain-fract', code: 'FRACT', name: 'Fracciones' },
+  });
+
+  const subArithSub = await prisma.subdomain.upsert({
+    where: { domainId_code: { domainId: domainArith.id, code: 'SUB' } },
+    update: {},
+    create: {
+      id: 'seed-sub-arith-sub',
+      domainId: domainArith.id,
+      code: 'SUB',
+      name: 'Sustracción',
+    },
+  });
+  const subArithAdd = await prisma.subdomain.upsert({
+    where: { domainId_code: { domainId: domainArith.id, code: 'ADD' } },
+    update: {},
+    create: {
+      id: 'seed-sub-arith-add',
+      domainId: domainArith.id,
+      code: 'ADD',
+      name: 'Adición',
+    },
+  });
+  const subFractAddSub = await prisma.subdomain.upsert({
+    where: { domainId_code: { domainId: domainFract.id, code: 'ADDSUB' } },
+    update: {},
+    create: {
+      id: 'seed-sub-fract-addsub',
+      domainId: domainFract.id,
+      code: 'ADDSUB',
+      name: 'Suma y resta de fracciones',
+    },
+  });
+  console.log(
+    '✅ Domains + Subdomains created (ARITH_SUB, ARITH_ADD, FRACT_ADDSUB)',
+  );
+
+  // Link topics to their domains/subdomains
+  await prisma.topic.update({
+    where: { id: topicSubBorrow.id },
+    data: { domainId: domainArith.id, subdomainId: subArithSub.id },
+  });
+  await prisma.topic.update({
+    where: { id: topicAddCarry.id },
+    data: { domainId: domainArith.id, subdomainId: subArithAdd.id },
+  });
+  await prisma.topic.update({
+    where: { id: topicFracSame.id },
+    data: { domainId: domainFract.id, subdomainId: subFractAddSub.id },
+  });
+  console.log('✅ Topics linked to domains/subdomains');
+
+  // Error Tags — v8 schema with enums
+  const errorTagDefs: Array<{
+    code: string;
+    name: string;
+    topicScope: string | null;
+    description: string;
+    domainId: string | null;
+    subdomainCode: string | null;
+    severity: ErrorSeverity;
+    source: ErrorSource;
+    status: ErrorStatus;
+  }> = [
     {
-      code: 'BORROW_OMITTED_TENS',
+      code: 'ARITH_SUB_BORROW_OMITTED_TENS_G3',
+      name: 'Borrow omitido — decenas',
       topicScope: 'T-SUB-BORROW',
-      description: 'Omite préstamo columna unidades',
-      severity: 'MED',
+      description: 'Omite préstamo columna unidades → decenas',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'BORROW_OMITTED_HUNDREDS',
+      code: 'ARITH_SUB_BORROW_OMITTED_HUNDREDS_G3',
+      name: 'Borrow omitido — centenas',
       topicScope: 'T-SUB-BORROW',
       description: 'Omite préstamo columna centenas',
-      severity: 'MED',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'SUBTRAHEND_MINUEND_SWAPPED',
+      code: 'ARITH_SUB_MINUEND_SUBTRAHEND_SWAPPED_G3',
+      name: 'Minuendo y sustraendo invertidos',
       topicScope: 'T-SUB-BORROW',
-      description: 'Resta al revés (sustrayendo mayor del menor)',
-      severity: 'HIGH',
+      description: 'Resta al revés: sustrae mayor del menor en cada columna',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'BORROW_FROM_ZERO_INCORRECT',
+      code: 'ARITH_SUB_BORROW_FROM_ZERO_G3',
+      name: 'Borrow desde cero — error',
       topicScope: 'T-SUB-BORROW',
-      description: 'Maneja mal préstamo desde columna con 0',
-      severity: 'HIGH',
+      description:
+        'Maneja incorrectamente el préstamo desde columna con dígito 0',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'STOP_BORROW_PROPAGATION',
+      code: 'ARITH_SUB_BORROW_PROPAGATION_STOP_G3',
+      name: 'Propagación del borrow detenida',
       topicScope: 'T-SUB-BORROW',
-      description: 'Detiene propagación del préstamo',
-      severity: 'MED',
+      description: 'Detiene propagación del préstamo en cadena de ceros',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'DIGIT_TRANSPOSITION',
+      code: 'ARITH_TRANSV_DIGIT_TRANSPOSITION',
+      name: 'Transposición de dígitos',
       topicScope: null,
-      description: 'Dígitos transpuestos en el resultado',
-      severity: 'LOW',
+      description: 'Dígitos transpuestos en el resultado final',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'COLUMN_MISALIGNMENT',
+      code: 'ARITH_TRANSV_COLUMN_MISALIGNMENT',
+      name: 'Desalineación de columnas',
       topicScope: null,
-      description: 'Alineación vertical incorrecta',
-      severity: 'MED',
+      description: 'Alineación vertical incorrecta entre columnas',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'ARITHMETIC_FACT_ERROR',
+      code: 'ARITH_TRANSV_FACT_ERROR',
+      name: 'Error en hecho básico',
       topicScope: null,
-      description: 'Error en hechos básicos (off-by-1/2)',
-      severity: 'LOW',
+      description: 'Error en hecho aritmético básico (off-by-1/2)',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'CARRY_OMITTED',
+      code: 'ARITH_ADD_CARRY_OMITTED_G3',
+      name: 'Llevada omitida',
       topicScope: 'T-ADD-CARRY',
-      description: 'No agregó la llevada a la columna',
-      severity: 'MED',
+      description: 'No agrega la llevada a la columna siguiente',
+      domainId: domainArith.id,
+      subdomainCode: 'ADD',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'CARRY_ADDED_TO_WRONG_COLUMN',
+      code: 'ARITH_ADD_CARRY_WRONG_COLUMN_G3',
+      name: 'Llevada en columna incorrecta',
       topicScope: 'T-ADD-CARRY',
-      description: 'Llevada en columna equivocada',
-      severity: 'MED',
+      description: 'Agrega la llevada a una columna equivocada',
+      domainId: domainArith.id,
+      subdomainCode: 'ADD',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'SUM_NUMERATORS_AND_DENOMINATORS',
+      code: 'FRACT_ADDSUB_SUM_NUMERATOR_AND_DENOMINATOR_G5',
+      name: 'Suma numeradores y denominadores por separado',
       topicScope: 'T-FRAC-SAME-DENOM',
-      description: 'Sumó/restó numeradores Y denominadores',
-      severity: 'HIGH',
+      description:
+        'Suma o resta numeradores Y denominadores independientemente',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'IMPROPER_FRACTION_NOT_REDUCED',
+      code: 'FRACT_ADDSUB_IMPROPER_NOT_REDUCED_G5',
+      name: 'Fracción impropia sin reducir',
       topicScope: 'T-FRAC-SAME-DENOM',
-      description: 'Resultado no reducido a forma simple',
-      severity: 'LOW',
+      description: 'Resultado no reducido a forma más simple',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'INVERTED_FRACTION',
+      code: 'FRACT_ADDSUB_INVERTED_FRACTION_G5',
+      name: 'Fracción invertida',
       topicScope: 'T-FRAC-SAME-DENOM',
-      description: 'Inversión accidental numerador/denominador',
-      severity: 'MED',
+      description:
+        'Inversión accidental de numerador y denominador en el resultado',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
-      code: 'WHOLE_NUMBER_LOST',
+      code: 'FRACT_ADDSUB_WHOLE_NUMBER_LOST_G5',
+      name: 'Parte entera perdida',
       topicScope: 'T-FRAC-SAME-DENOM',
-      description: 'Pierde la parte entera en números mixtos',
-      severity: 'HIGH',
+      description: 'Pierde la parte entera al operar con números mixtos',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_TRANSV_PLACE_VALUE_ERROR',
+      name: 'Error de valor posicional',
+      topicScope: null,
+      description:
+        'Respuesta desplazada un factor de 10 respecto al resultado correcto',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
       code: 'CORRECT',
+      name: 'Correcto',
       topicScope: null,
       description: 'Respuesta correcta',
-      severity: 'LOW',
+      domainId: null,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
     {
       code: 'UNCLASSIFIED',
+      name: 'Sin clasificar',
       topicScope: null,
-      description: 'Sin clasificación determinista',
-      severity: 'MED',
+      description: 'Sin clasificación determinista — encolado para LLM',
+      domainId: null,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
     },
   ];
 
@@ -285,7 +460,9 @@ async function main() {
       create: def,
     });
   }
-  console.log(`✅ ${errorTagDefs.length} ErrorTags created`);
+  console.log(
+    `✅ ${errorTagDefs.length} ErrorTags created (v8 naming convention)`,
+  );
 
   // Users
   const teacherUser = await prisma.user.upsert({
@@ -533,7 +710,7 @@ async function main() {
 
   // Sample Attempts for Diego Vega (student 0)
   const errorTagSubBorrow = await prisma.errorTag.findUnique({
-    where: { code: 'BORROW_OMITTED_TENS' },
+    where: { code: 'ARITH_SUB_BORROW_OMITTED_TENS_G3' },
   });
   const attemptDefs = [
     {
@@ -639,7 +816,7 @@ async function main() {
   }
   console.log(`✅ ${alertDefs.length} TeacherAlerts created`);
 
-  console.log('\n🎉 Seed v7 complete!');
+  console.log('\n🎉 Seed v8 complete!');
   console.log(`   Teacher: teacher@innova.demo`);
   console.log(`   Students: student1–5@innova.demo`);
   console.log(`   Parent: parent@innova.demo (linked to Diego Vega)`);
