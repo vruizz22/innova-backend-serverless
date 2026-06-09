@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 // Run: pnpm tsx scripts/codegen-error-tags.ts
 // Generated: ${new Date().toISOString()} (${tags.length} ACTIVE tags)
 
-export const enum ErrorTagCode {
+export enum ErrorTagCode {
 ${enumEntries}
 }
 
@@ -73,6 +73,7 @@ export function isDeprecated(tag: ErrorTagCode): boolean {
 export const ALL_ERROR_TAG_CODES = Object.values(ErrorTagCode) as ErrorTagCode[];
 `;
 
+  fs.mkdirSync(path.dirname(OUTPUT_PATH), { recursive: true });
   fs.writeFileSync(OUTPUT_PATH, output, 'utf8');
   console.log(
     `✅ Generated ${OUTPUT_PATH} with ${tags.length} ACTIVE error tags.`,
