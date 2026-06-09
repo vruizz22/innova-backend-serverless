@@ -2,7 +2,7 @@
  * Reads all ACTIVE ErrorTag rows from DB and generates
  * src/shared/domain/error-tags.generated.ts with a typed const enum + helpers.
  *
- * Run: pnpm tsx scripts/codegen-error-tags.ts
+ * Run: pnpm codegen:error-tags
  * Pre-commit hook validates the generated file is in sync.
  */
 import 'dotenv/config';
