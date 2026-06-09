@@ -183,54 +183,257 @@ async function main() {
     `✅ Curriculum: org → school → subject → curriculum → 3 units → 3 topics`,
   );
 
-  // v8: Domains + Subdomains (MVP subset — full 19-domain catalog via import-error-catalog script)
-  const domainArith = await prisma.domain.upsert({
-    where: { code: 'ARITH' },
-    update: {},
-    create: {
-      id: 'seed-domain-arith',
+  // v8: Domains + Subdomains — full 17-domain taxonomy (see docs/error-taxonomy/README.md §3).
+  // The error catalog importer (scripts/import-error-catalog.ts) maps each entry's
+  // domain_code → domainId, so EVERY domain referenced by error_catalog.jsonl must exist here.
+  // subdomain_code is stored as a plain string on ErrorTag, but we seed Subdomain rows too
+  // for the rule engine factory and dashboard filtering.
+  const DOMAIN_TAXONOMY: Array<{
+    code: string;
+    name: string;
+    subdomains: Array<{ code: string; name: string }>;
+  }> = [
+    {
       code: 'ARITH',
-      name: 'Aritmética de naturales',
+      name: 'Aritmética de números naturales',
+      subdomains: [
+        { code: 'COUNT', name: 'Conteo y orden' },
+        { code: 'PLACE_VALUE', name: 'Valor posicional' },
+        { code: 'ADD', name: 'Adición' },
+        { code: 'SUB', name: 'Sustracción' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'FACT_RECALL', name: 'Hechos básicos' },
+      ],
     },
-  });
-  const domainFract = await prisma.domain.upsert({
-    where: { code: 'FRACT' },
-    update: {},
-    create: { id: 'seed-domain-fract', code: 'FRACT', name: 'Fracciones' },
-  });
+    {
+      code: 'INT',
+      name: 'Aritmética de enteros',
+      subdomains: [
+        { code: 'SIGN', name: 'Regla de signos' },
+        { code: 'ADD', name: 'Adición de enteros' },
+        { code: 'SUB', name: 'Sustracción de enteros' },
+        { code: 'MUL', name: 'Multiplicación de enteros' },
+        { code: 'DIV', name: 'División de enteros' },
+        { code: 'ABS', name: 'Valor absoluto' },
+        { code: 'COMPARE', name: 'Orden y comparación' },
+      ],
+    },
+    {
+      code: 'FRACT',
+      name: 'Fracciones',
+      subdomains: [
+        { code: 'REPR', name: 'Representación' },
+        { code: 'EQUIV', name: 'Equivalencia' },
+        { code: 'REDUCE', name: 'Simplificación' },
+        { code: 'COMPARE', name: 'Comparación' },
+        { code: 'ADDSUB', name: 'Suma y resta' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'MIXED', name: 'Números mixtos' },
+      ],
+    },
+    {
+      code: 'DEC',
+      name: 'Números decimales',
+      subdomains: [
+        { code: 'REPR', name: 'Representación' },
+        { code: 'COMPARE', name: 'Comparación y orden' },
+        { code: 'ADD', name: 'Adición' },
+        { code: 'SUB', name: 'Sustracción' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'ROUND', name: 'Redondeo y aproximación' },
+        { code: 'FRACT_CONV', name: 'Conversión fracción↔decimal' },
+      ],
+    },
+    {
+      code: 'RATIO',
+      name: 'Razones, proporciones y porcentajes',
+      subdomains: [
+        { code: 'RATIO', name: 'Razones' },
+        { code: 'PROPORTION', name: 'Proporciones' },
+        { code: 'PERCENT', name: 'Porcentajes' },
+        { code: 'RULE_OF_THREE', name: 'Regla de tres' },
+      ],
+    },
+    {
+      code: 'ALGEBRA',
+      name: 'Álgebra (lineal y cuadrática)',
+      subdomains: [
+        { code: 'EXPR', name: 'Expresiones algebraicas' },
+        { code: 'MONOMIAL', name: 'Monomios y términos semejantes' },
+        { code: 'EQ_LINEAR', name: 'Ecuaciones lineales' },
+        { code: 'INEQ_LINEAR', name: 'Inecuaciones lineales' },
+        { code: 'SYSTEM_2X2', name: 'Sistemas 2×2' },
+        { code: 'ABS_EQ', name: 'Ecuaciones con valor absoluto' },
+        { code: 'EXPAND', name: 'Productos notables y expansión' },
+        { code: 'FACTOR', name: 'Factorización' },
+        { code: 'EQ_QUAD', name: 'Ecuaciones cuadráticas' },
+        { code: 'INEQ_QUAD', name: 'Inecuaciones cuadráticas' },
+        { code: 'POLY', name: 'Polinomios' },
+      ],
+    },
+    {
+      code: 'POW',
+      name: 'Potencias, raíces y exponentes',
+      subdomains: [
+        { code: 'POWER', name: 'Potencias' },
+        { code: 'ROOT', name: 'Raíces' },
+        { code: 'RATIONAL_EXP', name: 'Exponente racional' },
+        { code: 'RATIONALIZE', name: 'Racionalización' },
+      ],
+    },
+    {
+      code: 'FUNC',
+      name: 'Funciones',
+      subdomains: [
+        { code: 'EVAL', name: 'Evaluación' },
+        { code: 'DOMAIN', name: 'Dominio' },
+        { code: 'RANGE', name: 'Recorrido' },
+        { code: 'COMPOSITION', name: 'Composición' },
+        { code: 'INVERSE', name: 'Función inversa' },
+        { code: 'LINEAR', name: 'Función lineal y afín' },
+        { code: 'QUAD', name: 'Función cuadrática' },
+        { code: 'EXP', name: 'Función exponencial' },
+        { code: 'RATIONAL', name: 'Función racional' },
+      ],
+    },
+    {
+      code: 'GEOM',
+      name: 'Geometría plana',
+      subdomains: [
+        { code: 'ANGLE', name: 'Ángulos' },
+        { code: 'TRIANGLE', name: 'Triángulos' },
+        { code: 'QUAD_FIG', name: 'Cuadriláteros y polígonos' },
+        { code: 'CIRCLE', name: 'Circunferencia y círculo' },
+        { code: 'AREA', name: 'Área' },
+        { code: 'PERIMETER', name: 'Perímetro' },
+        { code: 'SIMILARITY', name: 'Semejanza' },
+        { code: 'CONGRUENCE', name: 'Congruencia' },
+        { code: 'TRANSFORM', name: 'Transformaciones isométricas' },
+      ],
+    },
+    {
+      code: 'GEOM3D',
+      name: 'Geometría 3D y volumen',
+      subdomains: [
+        { code: 'PRISM', name: 'Prismas' },
+        { code: 'CYLINDER', name: 'Cilindros' },
+        { code: 'PYRAMID', name: 'Pirámides' },
+        { code: 'CONE', name: 'Conos' },
+        { code: 'SPHERE', name: 'Esferas' },
+        { code: 'COMPOSITE', name: 'Cuerpos compuestos' },
+      ],
+    },
+    {
+      code: 'TRIG',
+      name: 'Trigonometría',
+      subdomains: [
+        { code: 'RATIO', name: 'Razones trigonométricas' },
+        { code: 'IDENTITY', name: 'Identidades' },
+        { code: 'UNIT_CIRCLE', name: 'Círculo unitario' },
+        { code: 'RIGHT_TRIANGLE', name: 'Triángulo rectángulo' },
+        { code: 'EQ_TRIG', name: 'Ecuaciones trigonométricas' },
+        { code: 'GRAPH', name: 'Gráficas trigonométricas' },
+      ],
+    },
+    {
+      code: 'STAT',
+      name: 'Estadística y probabilidad',
+      subdomains: [
+        { code: 'MEASURE_CENTRAL', name: 'Medidas de tendencia central' },
+        { code: 'MEASURE_DISPERSION', name: 'Medidas de dispersión' },
+        { code: 'PROB', name: 'Probabilidad' },
+        { code: 'COMBINATORICS', name: 'Combinatoria' },
+      ],
+    },
+    {
+      code: 'DATA',
+      name: 'Tratamiento de datos',
+      subdomains: [
+        { code: 'TABLE', name: 'Tablas' },
+        { code: 'BAR', name: 'Gráfico de barras' },
+        { code: 'LINE', name: 'Gráfico de líneas' },
+        { code: 'PIE', name: 'Gráfico circular' },
+        { code: 'PICTOGRAM', name: 'Pictograma' },
+        { code: 'FREQUENCY', name: 'Frecuencia' },
+      ],
+    },
+    {
+      code: 'LOG',
+      name: 'Logaritmos',
+      subdomains: [
+        { code: 'DEF', name: 'Definición' },
+        { code: 'PROPERTY', name: 'Propiedades' },
+        { code: 'EQ_LOG', name: 'Ecuaciones logarítmicas' },
+      ],
+    },
+    {
+      code: 'SEQ',
+      name: 'Sucesiones y series',
+      subdomains: [
+        { code: 'PATTERN', name: 'Patrones' },
+        { code: 'ARITHMETIC', name: 'Sucesión aritmética' },
+        { code: 'GEOMETRIC', name: 'Sucesión geométrica' },
+        { code: 'RECURSIVE', name: 'Sucesión recursiva' },
+      ],
+    },
+    {
+      code: 'COORD',
+      name: 'Geometría analítica y vectores',
+      subdomains: [
+        { code: 'PLOT', name: 'Ubicación en el plano' },
+        { code: 'DISTANCE', name: 'Distancia' },
+        { code: 'MIDPOINT', name: 'Punto medio' },
+        { code: 'LINE_EQ', name: 'Ecuación de la recta' },
+        { code: 'VECTOR', name: 'Vectores' },
+      ],
+    },
+    {
+      code: 'TRANSV',
+      name: 'Errores transversales',
+      subdomains: [
+        { code: 'ALIGNMENT', name: 'Alineación de columnas' },
+        { code: 'TRANSPOSITION', name: 'Transposición de dígitos' },
+        { code: 'NOTATION', name: 'Notación' },
+        { code: 'UNIT', name: 'Unidades de medida' },
+        { code: 'ORDER', name: 'Orden de operaciones' },
+      ],
+    },
+  ];
 
-  const subArithSub = await prisma.subdomain.upsert({
-    where: { domainId_code: { domainId: domainArith.id, code: 'SUB' } },
-    update: {},
-    create: {
-      id: 'seed-sub-arith-sub',
-      domainId: domainArith.id,
-      code: 'SUB',
-      name: 'Sustracción',
-    },
-  });
-  const subArithAdd = await prisma.subdomain.upsert({
-    where: { domainId_code: { domainId: domainArith.id, code: 'ADD' } },
-    update: {},
-    create: {
-      id: 'seed-sub-arith-add',
-      domainId: domainArith.id,
-      code: 'ADD',
-      name: 'Adición',
-    },
-  });
-  const subFractAddSub = await prisma.subdomain.upsert({
-    where: { domainId_code: { domainId: domainFract.id, code: 'ADDSUB' } },
-    update: {},
-    create: {
-      id: 'seed-sub-fract-addsub',
-      domainId: domainFract.id,
-      code: 'ADDSUB',
-      name: 'Suma y resta de fracciones',
-    },
-  });
+  const domainByCode = new Map<string, { id: string }>();
+  const subdomainByKey = new Map<string, { id: string }>();
+  for (const d of DOMAIN_TAXONOMY) {
+    const domain = await prisma.domain.upsert({
+      where: { code: d.code },
+      update: { name: d.name },
+      create: { code: d.code, name: d.name },
+    });
+    domainByCode.set(d.code, domain);
+    for (const s of d.subdomains) {
+      const sub = await prisma.subdomain.upsert({
+        where: { domainId_code: { domainId: domain.id, code: s.code } },
+        update: { name: s.name },
+        create: { domainId: domain.id, code: s.code, name: s.name },
+      });
+      subdomainByKey.set(`${d.code}:${s.code}`, sub);
+    }
+  }
+
+  // Back-compat aliases used by the rest of this seed (topic linking + curated ErrorTags).
+  const domainArith = domainByCode.get('ARITH')!;
+  const domainFract = domainByCode.get('FRACT')!;
+  const subArithSub = subdomainByKey.get('ARITH:SUB')!;
+  const subArithAdd = subdomainByKey.get('ARITH:ADD')!;
+  const subFractAddSub = subdomainByKey.get('FRACT:ADDSUB')!;
+  const subdomainCount = DOMAIN_TAXONOMY.reduce(
+    (n, d) => n + d.subdomains.length,
+    0,
+  );
   console.log(
-    '✅ Domains + Subdomains created (ARITH_SUB, ARITH_ADD, FRACT_ADDSUB)',
+    `✅ ${DOMAIN_TAXONOMY.length} Domains + ${subdomainCount} Subdomains upserted`,
   );
 
   // Link topics to their domains/subdomains
