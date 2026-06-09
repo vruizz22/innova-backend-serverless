@@ -2,7 +2,14 @@ import { Injectable, Logger } from '@nestjs/common';
 
 import { type RuleEngineStrategy } from '@modules/attempts/rule-engine/strategy.interface';
 import { AdditionCarryStrategy } from '@modules/attempts/rule-engine/strategies/addition-carry.strategy';
+import { DivisionLongStrategy } from '@modules/attempts/rule-engine/strategies/division-long.strategy';
 import { FractionSameDenomStrategy } from '@modules/attempts/rule-engine/strategies/fraction-same-denom.strategy';
+import {
+  IntAdditionStrategy,
+  IntMultiplicationStrategy,
+  IntSubtractionStrategy,
+} from '@modules/attempts/rule-engine/strategies/integers.strategy';
+import { MultiplicationStrategy } from '@modules/attempts/rule-engine/strategies/multiplication.strategy';
 import { SubtractionBorrowStrategy } from '@modules/attempts/rule-engine/strategies/subtraction-borrow.strategy';
 
 // Keyed by `<DOMAIN>_<SUBDOMAIN>` subdomain code.
@@ -10,6 +17,11 @@ import { SubtractionBorrowStrategy } from '@modules/attempts/rule-engine/strateg
 const REGISTRY: Record<string, RuleEngineStrategy> = {
   ARITH_SUB: new SubtractionBorrowStrategy(),
   ARITH_ADD: new AdditionCarryStrategy(),
+  ARITH_MUL: new MultiplicationStrategy(),
+  ARITH_DIV: new DivisionLongStrategy(),
+  INT_ADD: new IntAdditionStrategy(),
+  INT_SUB: new IntSubtractionStrategy(),
+  INT_MUL: new IntMultiplicationStrategy(),
   FRACT_ADDSUB: new FractionSameDenomStrategy(),
 };
 
