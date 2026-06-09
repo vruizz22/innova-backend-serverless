@@ -503,7 +503,7 @@ model ErrorTag {
   references       String[]
   deprecatedById   String?       @map("deprecated_by_id")
   createdAt        DateTime      @default(now()) @map("created_at")
-  updatedAt        DateTime      @updatedAt @map("updated_at")
+  updatedAt        DateTime      @default(now()) @updatedAt @map("updated_at")
 
   domain       Domain?    @relation(fields: [domainId], references: [id])
   deprecatedBy ErrorTag?  @relation("Deprecation", fields: [deprecatedById], references: [id])
