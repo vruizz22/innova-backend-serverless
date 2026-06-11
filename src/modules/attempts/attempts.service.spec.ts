@@ -33,9 +33,13 @@ function buildMockPrisma() {
       create: jest
         .fn()
         .mockResolvedValue({ id: 'attempt-uuid-1', isCorrect: true }),
+      findUnique: jest.fn().mockResolvedValue({ id: 'attempt-uuid-1' }),
     },
     attemptStep: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    attemptErrorReport: {
+      create: jest.fn().mockResolvedValue({ id: 'report-1' }),
     },
     exercise: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -179,5 +183,59 @@ describe('AttemptsService', () => {
     expect(result.topicHint).toBe('T-ADD-CARRY');
     expect(result.confidence).toBe(0.91);
     expect(result.rawSteps).toHaveLength(1);
+  });
+
+  describe('reportError (v8 C4)', () => {
+    function buildService(prisma: PrismaService): AttemptsService {
+      return new AttemptsService(
+        prisma,
+        buildMockRuleEngine({ isCorrect: true, errorType: 'CORRECT', confidence: 1 }),
+        buildMockMastery(),
+        buildMockSqs(),
+        buildMockOcr(),
+      );
+    }
+
+    it('records a field-reported error and returns an ack', async () => {
+      const prisma = buildMockPrisma();
+      const service = buildService(prisma);
+
+      const ack = await service.reportError(
+        'attempt-uuid-1',
+        { errorTagCode: 'BORROW_OMITTED_TENS', comment: 'era otro error' },
+        'user-1',
+      );
+
+      expect(ack).toEqual({ attemptId: 'attempt-uuid-1', reported: true });
+      expect(prisma.attemptErrorReport.create).toHaveBeenCalledWith({
+        data: {
+          attemptId: 'attempt-uuid-1',
+          errorTagId: 'tag-1',
+          reportedById: 'user-1',
+          comment: 'era otro error',
+          source: 'FIELD_REPORTED',
+        },
+      });
+    });
+
+    it('throws when the attempt does not exist', async () => {
+      const prisma = buildMockPrisma();
+      (prisma.attempt.findUnique as jest.Mock).mockResolvedValueOnce(null);
+      const service = buildService(prisma);
+
+      await expect(
+        service.reportError('missing', { errorTagCode: 'X' }, null),
+      ).rejects.toThrow('Attempt missing not found');
+    });
+
+    it('throws when the error tag code is unknown', async () => {
+      const prisma = buildMockPrisma();
+      (prisma.errorTag.findUnique as jest.Mock).mockResolvedValueOnce(null);
+      const service = buildService(prisma);
+
+      await expect(
+        service.reportError('attempt-uuid-1', { errorTagCode: 'NOPE' }, null),
+      ).rejects.toThrow('Error tag NOPE not found');
+    });
   });
 });
