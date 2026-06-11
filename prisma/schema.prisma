@@ -30,6 +30,42 @@ enum ErrorSeverity {
   CRITICAL
 }
 
+// ---------------------------------------------------------------------
+// v9 — Guides pipeline (ADR-116..125)
+// ---------------------------------------------------------------------
+
+enum GuideStatus {
+  UPLOADED
+  EXTRACTING
+  EXTRACTION_FAILED
+  GENERATING_SOLUTIONS
+  GENERATION_FAILED
+  REVIEW
+  PUBLISHED
+  ARCHIVED
+}
+
+enum GuideQuestionStatus {
+  EXTRACTED // salió del pipeline, sin revisar
+  NEEDS_REVIEW // baja confianza (topic <0.85 o pauta divergente del solucionario PDF)
+  APPROVED // profe aprobó pauta + topic
+  EXCLUDED // profe la sacó de la guía publicada
+}
+
+enum SolutionSource {
+  PDF_PROVIDED // venía en el PDF, normalizada
+  LLM_GENERATED // generada por Sonnet
+  TEACHER_EDITED // editada por el profe en el wizard
+}
+
+enum SubmissionStatus {
+  UPLOADED
+  TRANSCRIBING
+  GRADING
+  GRADED
+  FAILED
+}
+
 // =====================================================================
 // AUTH / USERS
 // =====================================================================
@@ -53,6 +89,8 @@ model User {
   student Student?
   parent  Parent?
 
+  errorReports AttemptErrorReport[]
+
   @@map("users")
 }
 
@@ -68,6 +106,7 @@ model Teacher {
   alerts         TeacherAlert[]
   assignments    Assignment[]
   integrations   SchoolIntegration[]
+  guides         Guide[]
 
   @@map("teachers")
 }
@@ -87,6 +126,7 @@ model Student {
   parentLinks       ParentLink[]
   topicMastery      StudentTopicMastery[]
   assignmentTargets AssignmentTarget[]
+  guideSubmissions  GuideSubmission[]
 
   @@map("students")
 }
@@ -171,6 +211,7 @@ model Course {
   attempts       Attempt[]
   alerts         TeacherAlert[]
   invites        ClassroomInvite[]
+  guides         Guide[]
 
   @@index([schoolId, academicYear])
   @@index([subjectId])
@@ -335,9 +376,10 @@ model Topic {
   exercises     Exercise[]
   prerequisites TopicPrerequisite[]   @relation("TopicPrereqs")
   dependents    TopicPrerequisite[]   @relation("PrereqTopics")
-  topicMastery  StudentTopicMastery[]
-  alerts        TeacherAlert[]
-  oaCodes       OfficialOACode[]
+  topicMastery   StudentTopicMastery[]
+  alerts         TeacherAlert[]
+  oaCodes        OfficialOACode[]
+  guideQuestions GuideQuestion[]
 
   @@unique([unitId, code])
   @@index([subdomainId])
@@ -377,6 +419,7 @@ model Exercise {
   attempts            Attempt[]
   assignmentExercises AssignmentExercise[]
   targetErrorTags     ErrorTag[]           @relation("ExerciseTargetErrors")
+  guideQuestion       GuideQuestion?
 
   @@index([topicId, source])
   @@index([topicId, status])
@@ -389,6 +432,7 @@ model Assignment {
   createdByTeacherId  String    @map("created_by_teacher_id")
   title               String
   reason              String
+  kind                String    @default("EXERCISES") // EXERCISES | GUIDE
   dueAt               DateTime? @map("due_at")
   createdAt           DateTime  @default(now()) @map("created_at")
 
@@ -397,6 +441,7 @@ model Assignment {
   targets            AssignmentTarget[]
   assignmentExercises AssignmentExercise[]
   attempts            Attempt[]
+  guide              Guide?
 
   @@index([courseId])
   @@index([createdByTeacherId])
@@ -452,18 +497,41 @@ model Attempt {
   createdAt        DateTime  @default(now()) @map("created_at")
   classifiedAt     DateTime? @map("classified_at")
 
-  assignment Assignment? @relation(fields: [assignmentId], references: [id])
-  exercise   Exercise?   @relation(fields: [exerciseId], references: [id])
-  student    Student     @relation(fields: [studentId], references: [id])
-  course     Course?     @relation(fields: [courseId], references: [id])
-  errorTag   ErrorTag?   @relation(fields: [errorTagId], references: [id])
-  steps      AttemptStep[]
+  assignment      Assignment?      @relation(fields: [assignmentId], references: [id])
+  exercise        Exercise?        @relation(fields: [exerciseId], references: [id])
+  student         Student          @relation(fields: [studentId], references: [id])
+  course          Course?          @relation(fields: [courseId], references: [id])
+  errorTag        ErrorTag?        @relation(fields: [errorTagId], references: [id])
+  steps           AttemptStep[]
+  guideSubmission GuideSubmission?
+  errorReports    AttemptErrorReport[]
 
   @@index([studentId])
   @@index([courseId])
   @@index([exerciseId, createdAt])
   @@index([errorTagId])
   @@map("attempts")
+}
+
+// v8 C4 — a student/teacher disagreeing with the classifier reports the correct
+// error tag from the catalog. Recorded as field evidence (ErrorSource.FIELD_REPORTED)
+// without overwriting the original classification on the Attempt.
+model AttemptErrorReport {
+  id           String      @id @default(uuid())
+  attemptId    String      @map("attempt_id")
+  errorTagId   String      @map("error_tag_id")
+  reportedById String?     @map("reported_by_id")
+  comment      String?
+  source       ErrorSource @default(FIELD_REPORTED)
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  attempt    Attempt  @relation(fields: [attemptId], references: [id])
+  errorTag   ErrorTag @relation(fields: [errorTagId], references: [id])
+  reportedBy User?    @relation(fields: [reportedById], references: [id])
+
+  @@index([attemptId])
+  @@index([errorTagId])
+  @@map("attempt_error_reports")
 }
 
 model AttemptStep {
@@ -511,7 +579,9 @@ model ErrorTag {
 
   attempts            Attempt[]
   attemptSteps        AttemptStep[]
-  targetedByExercises Exercise[]    @relation("ExerciseTargetErrors")
+  targetedByExercises Exercise[]           @relation("ExerciseTargetErrors")
+  errorReports        AttemptErrorReport[]
+  submissionOverrides GuideSubmission[]    @relation("SubmissionErrorOverride")
 
   @@index([domainId, status])
   @@index([source])
@@ -612,4 +682,139 @@ model ExternalIdMap {
   @@unique([provider, externalEntityType, externalId, schoolIntegrationId])
   @@index([internalEntityType, internalEntityId])
   @@map("external_id_maps")
+}
+
+// =====================================================================
+// v9 — GUIDES PIPELINE (PDF → pauta IA → quiz con fotos → corrección)
+// Migración aditiva v9_guides_pipeline. ADRs 116-125. Sin renames.
+// =====================================================================
+
+model Guide {
+  id                     String      @id @default(uuid())
+  courseId               String      @map("course_id")
+  createdByTeacherId     String      @map("created_by_teacher_id")
+  title                  String
+  description            String?
+  status                 GuideStatus @default(UPLOADED)
+  sourcePdfKey           String      @map("source_pdf_key") // S3 guides/uploads/
+  sourcePdfPages         Int?        @map("source_pdf_pages")
+  sourceKind             String?     @map("source_kind") // SCANNED | DIGITAL | MIXED (Gemini precheck)
+  latexKey               String?     @map("latex_key") // S3 .tex generado (ADR-117)
+  extractionConfidence   Float?      @map("extraction_confidence")
+  extractionModel        String?     @map("extraction_model")
+  failureReason          String?     @map("failure_reason")
+  questionCount          Int         @default(0) @map("question_count")
+  maxResubmissions       Int         @default(2) @map("max_resubmissions")
+  showSolutionAfterGrade Boolean     @default(false) @map("show_solution_after_grade")
+  assignmentId           String?     @unique @map("assignment_id") // set al publicar (kind=GUIDE)
+  dueAt                  DateTime?   @map("due_at")
+  publishedAt            DateTime?   @map("published_at")
+  traceId                String      @default(uuid()) @map("trace_id")
+  createdAt              DateTime    @default(now()) @map("created_at")
+  updatedAt              DateTime    @updatedAt @map("updated_at")
+  archivedAt             DateTime?   @map("archived_at")
+
+  course      Course            @relation(fields: [courseId], references: [id])
+  teacher     Teacher           @relation(fields: [createdByTeacherId], references: [id])
+  assignment  Assignment?       @relation(fields: [assignmentId], references: [id])
+  questions   GuideQuestion[]
+  submissions GuideSubmission[]
+
+  @@index([courseId, status])
+  @@index([createdByTeacherId])
+  @@map("guides")
+}
+
+model GuideQuestion {
+  id                    String              @id @default(uuid())
+  guideId               String              @map("guide_id")
+  sequence              Int
+  label                 String? // "1.a", "3", "II.2"
+  statementLatex        String              @map("statement_latex")
+  statementJson         Json?               @map("statement_json") // sub-partes, opciones, tablas
+  figureKeys            String[]            @map("figure_keys") // crops S3 guides/{id}/figures/
+  providedAnswer        String?             @map("provided_answer") // respuesta del PDF
+  providedSolutionLatex String?             @map("provided_solution_latex") // solucionario del PDF
+  points                Float               @default(1.0)
+  status                GuideQuestionStatus @default(EXTRACTED)
+  topicId               String?             @map("topic_id")
+  domainId              String?             @map("domain_id")
+  subdomainId           String?             @map("subdomain_id")
+  topicConfidence       Float?              @map("topic_confidence")
+  topicSource           String?             @map("topic_source") // LLM | TEACHER
+  exerciseId            String?             @unique @map("exercise_id") // materializado al publicar (ADR-116)
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+
+  guide       Guide             @relation(fields: [guideId], references: [id])
+  topic       Topic?            @relation(fields: [topicId], references: [id])
+  exercise    Exercise?         @relation(fields: [exerciseId], references: [id])
+  solutions   GuideSolution[]
+  submissions GuideSubmission[]
+
+  @@unique([guideId, sequence])
+  @@index([topicId])
+  @@map("guide_questions")
+}
+
+model GuideSolution {
+  id                 String         @id @default(uuid())
+  guideQuestionId    String         @map("guide_question_id")
+  version            Int
+  isCurrent          Boolean        @default(true) @map("is_current")
+  source             SolutionSource
+  finalAnswer        String         @map("final_answer")
+  stepsJson          Json           @map("steps_json") // formato canónico ADR-118
+  solutionLatex      String?        @map("solution_latex") // render derivado, no fuente de verdad
+  expectedErrorTags  String[]       @map("expected_error_tags") // codes de ErrorTag
+  generatedByModel   String?        @map("generated_by_model")
+  promptVersion      String?        @map("prompt_version")
+  validationNotes    String?        @map("validation_notes") // discrepancias vs solucionario del PDF
+  createdByTeacherId String?        @map("created_by_teacher_id")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  question GuideQuestion @relation(fields: [guideQuestionId], references: [id])
+
+  @@unique([guideQuestionId, version])
+  @@index([guideQuestionId, isCurrent])
+  @@map("guide_solutions")
+}
+
+model GuideSubmission {
+  id                      String           @id @default(uuid())
+  guideId                 String           @map("guide_id")
+  guideQuestionId         String           @map("guide_question_id")
+  studentId               String           @map("student_id")
+  attemptNumber           Int              @default(1) @map("attempt_number")
+  status                  SubmissionStatus @default(UPLOADED)
+  photoKeys               String[]         @map("photo_keys") // 1-3 fotos S3, lifecycle 30d
+  transcriptionLatex      String?          @map("transcription_latex")
+  transcriptionJson       Json?            @map("transcription_json") // pasos ordenados
+  transcriptionConfidence Float?           @map("transcription_confidence")
+  alignmentJson           Json?            @map("alignment_json") // paso alumno ↔ checkpoint pauta + veredictos
+  solutionVersion         Int?             @map("solution_version") // versión de pauta usada
+  score                   Float?
+  isCorrect               Boolean?         @map("is_correct")
+  attemptId               String?          @unique @map("attempt_id") // ADR-120
+  overrideErrorTagId      String?          @map("override_error_tag_id") // teacher manual override (C11)
+  overrideById            String?          @map("override_by_id") // teacher who overrode
+  overrideAt              DateTime?        @map("override_at")
+  modelUsed               String?          @map("model_used")
+  failureReason           String?          @map("failure_reason")
+  traceId                 String           @default(uuid()) @map("trace_id")
+  gradedAt                DateTime?        @map("graded_at")
+  createdAt               DateTime         @default(now()) @map("created_at")
+  updatedAt               DateTime         @updatedAt @map("updated_at")
+
+  guide            Guide         @relation(fields: [guideId], references: [id])
+  question         GuideQuestion @relation(fields: [guideQuestionId], references: [id])
+  student          Student       @relation(fields: [studentId], references: [id])
+  attempt          Attempt?      @relation(fields: [attemptId], references: [id])
+  overrideErrorTag ErrorTag?     @relation("SubmissionErrorOverride", fields: [overrideErrorTagId], references: [id])
+
+  @@unique([guideQuestionId, studentId, attemptNumber])
+  @@index([guideId, studentId])
+  @@index([status])
+  @@index([overrideErrorTagId])
+  @@map("guide_submissions")
 }
