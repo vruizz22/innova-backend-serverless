@@ -554,3 +554,140 @@ Table exercise_target_error_tag {
 //
 // 4. La columna `subdomain_id` en topic puede ser NULL durante la migración
 //    inicial (backfill), pero debe ser NOT NULL post-M14 DoD.
+
+// =====================================================================
+// v9.0 EXTENSIONS — Guides pipeline (2026-06-10)
+// Aditivo sobre v8. Migración Prisma asociada: v9_guides_pipeline.
+// ADRs 116-125. Sin renames ni breaking changes.
+// =====================================================================
+
+// Enums nuevos:
+//   GuideStatus          = UPLOADED | EXTRACTING | EXTRACTION_FAILED |
+//                          GENERATING_SOLUTIONS | GENERATION_FAILED |
+//                          REVIEW | PUBLISHED | ARCHIVED
+//   GuideQuestionStatus  = EXTRACTED | NEEDS_REVIEW | APPROVED | EXCLUDED
+//   SolutionSource       = PDF_PROVIDED | LLM_GENERATED | TEACHER_EDITED
+//   SubmissionStatus     = UPLOADED | TRANSCRIBING | GRADING | GRADED | FAILED
+
+Table guide {
+  id                        uuid       [pk, default: `gen_random_uuid()`]
+  course_id                 uuid       [not null, ref: > course.id]
+  created_by_teacher_id     uuid       [not null, ref: > teacher.id]
+  title                     varchar    [not null]
+  description               text
+  status                    GuideStatus [not null, default: 'UPLOADED']
+  source_pdf_key            varchar    [not null, note: 'S3 guides/uploads/{uuid}.pdf, retención 1 año']
+  source_pdf_pages          int
+  source_kind               varchar    [note: 'SCANNED | DIGITAL | MIXED (Gemini precheck)']
+  latex_key                 varchar    [note: 'S3 .tex generado (ADR-117)']
+  extraction_confidence     float
+  extraction_model          varchar
+  failure_reason            text
+  question_count            int        [not null, default: 0]
+  max_resubmissions         int        [not null, default: 2]
+  show_solution_after_grade boolean    [not null, default: false]
+  assignment_id             uuid       [unique, ref: > assignment.id, note: 'set al publicar (kind=GUIDE)']
+  due_at                    timestamptz
+  published_at              timestamptz
+  trace_id                  uuid       [not null]
+  created_at                timestamptz [not null, default: `now()`]
+  updated_at                timestamptz [not null, default: `now()`]
+  archived_at               timestamptz
+
+  Indexes {
+    (course_id, status)
+    created_by_teacher_id
+  }
+  Note: 'Agregado central v9 (ADR-116). Máquina de estados ADR-119. Nada visible a alumnos antes de PUBLISHED.'
+}
+
+Table guide_question {
+  id                       uuid       [pk, default: `gen_random_uuid()`]
+  guide_id                 uuid       [not null, ref: > guide.id]
+  sequence                 int        [not null]
+  label                    varchar    [note: '"1.a", "3", "II.2"']
+  statement_latex          text       [not null]
+  statement_json           jsonb      [note: 'sub-partes, opciones, tablas']
+  figure_keys              "varchar[]" [note: 'crops S3 guides/{id}/figures/']
+  provided_answer          varchar    [note: 'respuesta del PDF']
+  provided_solution_latex  text       [note: 'solucionario del PDF']
+  points                   float      [not null, default: 1.0]
+  status                   GuideQuestionStatus [not null, default: 'EXTRACTED']
+  topic_id                 uuid       [ref: > topic.id]
+  domain_id                uuid       [ref: > domain.id]
+  subdomain_id             uuid       [ref: > subdomain.id]
+  topic_confidence         float
+  topic_source             varchar    [note: 'LLM | TEACHER']
+  exercise_id              uuid       [unique, ref: > exercise.id, note: 'materializado al publicar (ADR-116)']
+  created_at               timestamptz [not null, default: `now()`]
+  updated_at               timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (guide_id, sequence) [unique]
+    topic_id
+  }
+}
+
+Table guide_solution {
+  id                    uuid       [pk, default: `gen_random_uuid()`]
+  guide_question_id     uuid       [not null, ref: > guide_question.id]
+  version               int        [not null]
+  is_current            boolean    [not null, default: true]
+  source                SolutionSource [not null]
+  final_answer          varchar    [not null]
+  steps_json            jsonb      [not null, note: 'formato canónico ADR-118: steps[] + checkpoints + alt_paths']
+  solution_latex        text       [note: 'render derivado, NO fuente de verdad']
+  expected_error_tags   "varchar[]" [note: 'codes de error_tag']
+  generated_by_model    varchar
+  prompt_version        varchar
+  validation_notes      text       [note: 'discrepancias vs solucionario del PDF']
+  created_by_teacher_id uuid
+  created_at            timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (guide_question_id, version) [unique]
+    (guide_question_id, is_current)
+  }
+  Note: 'Pauta versionada (ADR-118). Edición del profe → version+1, is_current=true. La corrección registra solution_version usada.'
+}
+
+Table guide_submission {
+  id                        uuid       [pk, default: `gen_random_uuid()`]
+  guide_id                  uuid       [not null, ref: > guide.id]
+  guide_question_id         uuid       [not null, ref: > guide_question.id]
+  student_id                uuid       [not null, ref: > student.id]
+  attempt_number            int        [not null, default: 1]
+  status                    SubmissionStatus [not null, default: 'UPLOADED']
+  photo_keys                "varchar[]" [note: '1-3 fotos S3 innova-submissions, lifecycle 30d (ADR-123)']
+  transcription_latex       text
+  transcription_json        jsonb      [note: 'pasos ordenados']
+  transcription_confidence  float
+  alignment_json            jsonb      [note: 'paso alumno ↔ checkpoint pauta + veredictos']
+  solution_version          int        [note: 'versión de pauta usada (reproducibilidad)']
+  score                     float
+  is_correct                boolean
+  attempt_id                uuid       [unique, ref: > attempt.id, note: 'ADR-120: Attempt(PHOTO_GUIDE) 1:1']
+  model_used                varchar
+  failure_reason            text
+  trace_id                  uuid       [not null]
+  graded_at                 timestamptz
+  created_at                timestamptz [not null, default: `now()`]
+  updated_at                timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (guide_question_id, student_id, attempt_number) [unique]
+    (guide_id, student_id)
+    status
+  }
+  Note: 'Cáscara de entrega (ADR-120). El registro canónico de corrección es el Attempt 1:1.'
+}
+
+// Extensiones aditivas a tablas v8 (campos String → sin migración de enum):
+//   - assignment.kind varchar DEFAULT 'EXERCISES'  (EXERCISES | GUIDE)
+//   - exercise.source admite nuevo valor 'GUIDE_EXTRACTED'
+//   - attempt.input_mode admite nuevo valor 'PHOTO_GUIDE'
+//   - teacher_alert.alert_type admite GUIDE_READY_FOR_REVIEW |
+//     GUIDE_GRADING_COMPLETE | GUIDE_COMMON_ERROR
+//   - Back-relations: teacher.guides, course.guides, student.guide_submissions,
+//     topic.guide_questions, exercise.guide_question, attempt.guide_submission,
+//     assignment.guide
