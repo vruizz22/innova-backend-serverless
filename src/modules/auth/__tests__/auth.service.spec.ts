@@ -198,10 +198,11 @@ describe('AuthService', () => {
       prismaUserId: 'user-1',
     };
 
-    it('me returns id, email and role', () => {
-      const result = service.me(user);
+    it('me returns id, email, role and the resolved profileId', async () => {
+      const result = await service.me(user);
       expect(result.email).toBe('teacher@innova.demo');
       expect(result.role).toBe(Role.TEACHER);
+      expect(result.profileId).toBe('teacher-1');
     });
 
     it('logout returns success message', () => {
