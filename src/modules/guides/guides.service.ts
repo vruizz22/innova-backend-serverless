@@ -516,7 +516,9 @@ export class GuidesService {
         where: { guideId },
         orderBy: { attemptNumber: 'desc' },
         include: {
-          attempt: { include: { errorTag: { select: { code: true, name: true } } } },
+          attempt: {
+            include: { errorTag: { select: { code: true, name: true } } },
+          },
           overrideErrorTag: { select: { code: true, name: true } },
         },
       }),
@@ -530,8 +532,10 @@ export class GuidesService {
     }
 
     const cells = [...latest.values()].map((s) => {
-      const code = s.overrideErrorTag?.code ?? s.attempt?.errorTag?.code ?? null;
-      const name = s.overrideErrorTag?.name ?? s.attempt?.errorTag?.name ?? null;
+      const code =
+        s.overrideErrorTag?.code ?? s.attempt?.errorTag?.code ?? null;
+      const name =
+        s.overrideErrorTag?.name ?? s.attempt?.errorTag?.name ?? null;
       const isLate = dueAt !== null && s.createdAt > dueAt;
       return {
         submissionId: s.id,
@@ -549,11 +553,17 @@ export class GuidesService {
     });
 
     // Top error tags per question (effective tag, only incorrect cells).
-    const perQuestion = new Map<string, Map<string, { name: string | null; count: number }>>();
+    const perQuestion = new Map<
+      string,
+      Map<string, { name: string | null; count: number }>
+    >();
     for (const c of cells) {
       if (c.isCorrect === true || c.errorTagCode === null) continue;
       const byTag = perQuestion.get(c.questionId) ?? new Map();
-      const entry = byTag.get(c.errorTagCode) ?? { name: c.errorTagName, count: 0 };
+      const entry = byTag.get(c.errorTagCode) ?? {
+        name: c.errorTagName,
+        count: 0,
+      };
       entry.count += 1;
       byTag.set(c.errorTagCode, entry);
       perQuestion.set(c.questionId, byTag);
@@ -604,7 +614,8 @@ export class GuidesService {
         where: { code: errorTagCode },
         select: { id: true },
       });
-      if (!tag) throw new NotFoundException(`Error tag ${errorTagCode} not found`);
+      if (!tag)
+        throw new NotFoundException(`Error tag ${errorTagCode} not found`);
       errorTagId = tag.id;
     }
 
@@ -641,9 +652,13 @@ export class GuidesService {
     const submission = await this.prisma.guideSubmission.findFirst({
       where: { id: submissionId, guideId },
       include: {
-        attempt: { include: { errorTag: { select: { code: true, name: true } } } },
+        attempt: {
+          include: { errorTag: { select: { code: true, name: true } } },
+        },
         overrideErrorTag: { select: { code: true, name: true } },
-        question: { select: { sequence: true, label: true, statementLatex: true } },
+        question: {
+          select: { sequence: true, label: true, statementLatex: true },
+        },
       },
     });
     if (!submission) throw new NotFoundException('Submission not found');
@@ -671,9 +686,13 @@ export class GuidesService {
       failureReason: submission.failureReason,
       photoUrls,
       errorTagCode:
-        submission.overrideErrorTag?.code ?? submission.attempt?.errorTag?.code ?? null,
+        submission.overrideErrorTag?.code ??
+        submission.attempt?.errorTag?.code ??
+        null,
       errorTagName:
-        submission.overrideErrorTag?.name ?? submission.attempt?.errorTag?.name ?? null,
+        submission.overrideErrorTag?.name ??
+        submission.attempt?.errorTag?.name ??
+        null,
       isOverridden: submission.overrideErrorTagId !== null,
     };
   }

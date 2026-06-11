@@ -10,7 +10,8 @@ export class OverrideSubmissionErrorDto {
   @ApiProperty({
     required: false,
     nullable: true,
-    description: 'Error tag code from the catalog, or null to clear the override',
+    description:
+      'Error tag code from the catalog, or null to clear the override',
     example: 'SUB_BORROW_NO_REGROUP',
   })
   @IsOptional()

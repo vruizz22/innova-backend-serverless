@@ -184,7 +184,8 @@ export class GuidesController {
 
   @Get(':id/submissions/:sid')
   @ApiOperation({
-    summary: 'Submission detail for the results drawer (photos + alignment) (C11)',
+    summary:
+      'Submission detail for the results drawer (photos + alignment) (C11)',
   })
   @ApiParam({ name: 'id' })
   @ApiParam({ name: 'sid' })
@@ -193,7 +194,11 @@ export class GuidesController {
     @Param('id') id: string,
     @Param('sid') sid: string,
   ) {
-    return this.guidesService.getSubmissionDetail(req.user.prismaUserId, id, sid);
+    return this.guidesService.getSubmissionDetail(
+      req.user.prismaUserId,
+      id,
+      sid,
+    );
   }
 
   @Patch(':id/submissions/:sid/error-tag')
