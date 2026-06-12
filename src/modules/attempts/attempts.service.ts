@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { MasteryService } from '@modules/mastery/mastery.service';
@@ -9,12 +9,18 @@ import {
 import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { RuleClassificationResult } from '@modules/attempts/rule-engine/strategy.interface';
 import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
+import { ReportAttemptErrorDto } from '@modules/attempts/dto/report-attempt-error.dto';
 
 export interface OcrExtractResult {
   rawSteps: AttemptStepDto[];
   finalAnswer: string;
   topicHint: string | null;
   confidence: number;
+}
+
+export interface ReportAck {
+  attemptId: string;
+  reported: boolean;
 }
 
 export interface AttemptResponse {
@@ -41,12 +47,19 @@ export class AttemptsService {
   ): Promise<AttemptResponse> {
     await this.prisma.ensureConnected();
 
-    // Map topicCode to topic record
+    // Map topicCode to topic record (include subdomain for rule engine routing)
     const topic = await this.prisma.topic.findFirst({
       where: { code: dto.topicCode },
+      include: {
+        subdomain: { select: { code: true } },
+        domain: { select: { id: true, code: true } },
+      },
     });
 
-    const classified = this.ruleEngine.classify(dto);
+    const subdomainCode = topic?.subdomain?.code
+      ? `${topic.domain?.code ?? ''}_${topic.subdomain.code}`
+      : 'UNKNOWN';
+    const classified = this.ruleEngine.classify(dto, subdomainCode);
     const isUnclassified = classified.errorType === 'UNCLASSIFIED';
 
     // Find matching ErrorTag
@@ -130,6 +143,8 @@ export class AttemptsService {
         messageBody: {
           id: attempt.id,
           topic: dto.topicCode,
+          domain_id: topic?.domainId ?? null,
+          subdomain_code: topic?.subdomain?.code ?? null,
           problem_statement: problemStatement,
           canonical_solution: String(dto.expectedAnswer),
           raw_steps: dto.rawSteps,
@@ -156,6 +171,47 @@ export class AttemptsService {
       topicHint: result.topicHint,
       confidence: result.confidence,
     };
+  }
+
+  /**
+   * v8 C4 — records a field-reported correct error tag for an attempt without
+   * overwriting the original classification. The reporter's identity is optional
+   * (the route is auth-guarded; user linkage is a follow-up).
+   */
+  async reportError(
+    attemptId: string,
+    dto: ReportAttemptErrorDto,
+    reportedById: string | null,
+  ): Promise<ReportAck> {
+    await this.prisma.ensureConnected();
+
+    const attempt = await this.prisma.attempt.findUnique({
+      where: { id: attemptId },
+      select: { id: true },
+    });
+    if (!attempt) {
+      throw new NotFoundException(`Attempt ${attemptId} not found`);
+    }
+
+    const errorTag = await this.prisma.errorTag.findUnique({
+      where: { code: dto.errorTagCode },
+      select: { id: true },
+    });
+    if (!errorTag) {
+      throw new NotFoundException(`Error tag ${dto.errorTagCode} not found`);
+    }
+
+    await this.prisma.attemptErrorReport.create({
+      data: {
+        attemptId: attempt.id,
+        errorTagId: errorTag.id,
+        reportedById,
+        comment: dto.comment ?? null,
+        source: 'FIELD_REPORTED',
+      },
+    });
+
+    return { attemptId: attempt.id, reported: true };
   }
 }
 

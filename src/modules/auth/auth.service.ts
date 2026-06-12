@@ -216,8 +216,22 @@ export class AuthService {
     return { message: 'Password updated successfully' };
   }
 
-  me(user: SupabaseUser): { id: string; email: string; role: string } {
-    return { id: user.prismaUserId, email: user.email, role: user.role };
+  async me(user: SupabaseUser): Promise<{
+    id: string;
+    email: string;
+    role: string;
+    profileId: string | null;
+  }> {
+    // profileId resolves to the role-specific record id (Student.id / Teacher.id /
+    // Parent.id), which is what domain endpoints (e.g. /assignments/student/:id)
+    // expect — User.id alone is not enough for the frontend to call them.
+    const profileId = await this.findProfileId(user.prismaUserId, user.role);
+    return {
+      id: user.prismaUserId,
+      email: user.email,
+      role: user.role,
+      profileId,
+    };
   }
 
   logout(_user: SupabaseUser): { message: string } {

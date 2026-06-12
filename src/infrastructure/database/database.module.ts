@@ -19,6 +19,15 @@ export const envSchema = z.object({
   SQS_LLM_CLASSIFY_URL: z.string().url().optional(),
   SQS_OCR_QUEUE_URL: z.string().url().optional(),
   SQS_ATTEMPT_REPROCESS_URL: z.string().url().optional(),
+  // v9 — guides pipeline queues
+  SQS_GUIDE_INGEST_URL: z.string().url().optional(),
+  SQS_SOLUTION_GEN_URL: z.string().url().optional(),
+  SQS_SUBMISSION_GRADE_URL: z.string().url().optional(),
+  // v9 — guides pipeline storage
+  S3_GUIDES_BUCKET: z.string().optional(),
+  S3_SUBMISSIONS_BUCKET: z.string().optional(),
+  GUIDES_PRESIGNED_PUT_TTL: z.coerce.number().int().positive().default(600),
+  GUIDES_PRESIGNED_GET_TTL: z.coerce.number().int().positive().default(300),
   ANTHROPIC_API_KEY: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),

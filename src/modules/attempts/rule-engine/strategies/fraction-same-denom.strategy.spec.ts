@@ -20,10 +20,8 @@ describe('FractionSameDenomStrategy', () => {
     strategy = new FractionSameDenomStrategy();
   });
 
-  it('supports T-FRAC-SAME-DENOM and fractions_addsub_same_denom', () => {
-    expect(strategy.supports('T-FRAC-SAME-DENOM')).toBe(true);
-    expect(strategy.supports('fractions_addsub_same_denom')).toBe(true);
-    expect(strategy.supports('T-SUB-BORROW')).toBe(false);
+  it('has correct subdomainCode', () => {
+    expect(strategy.subdomainCode).toBe('FRACT_ADDSUB');
   });
 
   it('CORRECT — returns CORRECT when student answer matches expected', () => {
@@ -34,18 +32,18 @@ describe('FractionSameDenomStrategy', () => {
     expect(result.errorType).toBe('CORRECT');
   });
 
-  it('ARITHMETIC_FACT_ERROR — off by 1 from expected', () => {
+  it('ARITH_TRANSV_FACT_ERROR — off by 1 from expected', () => {
     const result = strategy.classify(
       makeDto({ expectedAnswer: 3, studentAnswer: 2 }),
     );
-    expect(result.errorType).toBe('ARITHMETIC_FACT_ERROR');
+    expect(result.errorType).toBe('ARITH_TRANSV_FACT_ERROR');
   });
 
-  it('IMPROPER_FRACTION_NOT_REDUCED — student answer is integer multiple of expected', () => {
+  it('FRACT_ADDSUB_IMPROPER_NOT_REDUCED_G5 — student answer is integer multiple of expected', () => {
     const result = strategy.classify(
       makeDto({ expectedAnswer: 3, studentAnswer: 6 }),
     );
-    expect(result.errorType).toBe('IMPROPER_FRACTION_NOT_REDUCED');
+    expect(result.errorType).toBe('FRACT_ADDSUB_IMPROPER_NOT_REDUCED_G5');
   });
 
   it('UNCLASSIFIED — no rule matches', () => {

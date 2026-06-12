@@ -1,7 +1,7 @@
 # CLAUDE.md — innova-backend-serverless
 
 > Repo-specific instructions for Claude Code. Inherits all rules from `~/.claude/CLAUDE.md`.
-> **Plan vigente:** ver `../docs/MASTER_PLAN_v7.md` y `./docs/PLAN_v7_ADDENDUM.md`.
+> **Plan vigente:** ver `../docs/MASTER_PLAN_v9.md` y `./docs/PLAN_v9_ADDENDUM.md` (v7/v8 quedan como referencia histórica). Pipeline de guías: `../.github/instructions/06c-guide-pipeline.md`.
 > Stack v7: NestJS + TypeScript strict + Prisma + Mongoose + AWS Lambda + SQS + **Supabase Auth (JWKS)** + **Supabase Postgres** (post-M12).
 
 ## [0] REGLA OPERATIVA — install-by-user (CRÍTICA)

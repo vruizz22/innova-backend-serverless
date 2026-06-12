@@ -1,8 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import { type CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 import {
-  RuleClassificationResult,
-  RuleEngineStrategy,
+  type RuleClassificationResult,
+  type RuleEngineStrategy,
 } from '@modules/attempts/rule-engine/strategy.interface';
 
 function digitsOf(n: number): number[] {
@@ -35,11 +34,8 @@ function computeNoCarryResult(addend1: number, addend2: number): number {
   return result;
 }
 
-@Injectable()
 export class AdditionCarryStrategy implements RuleEngineStrategy {
-  supports(topicCode: string): boolean {
-    return topicCode === 'addition_carry' || topicCode === 'T-ADD-CARRY';
-  }
+  readonly subdomainCode = 'ARITH_ADD';
 
   classify(payload: CreateAttemptDto): RuleClassificationResult {
     const { expectedAnswer, studentAnswer } = payload;
@@ -52,14 +48,14 @@ export class AdditionCarryStrategy implements RuleEngineStrategy {
       return { isCorrect: true, errorType: 'CORRECT', confidence: 1.0 };
     }
 
-    // Rule 1: CARRY_OMITTED — added column-by-column without carrying
+    // Rule 1: carry omitted — added column-by-column without carrying
     const noCarryResult = computeNoCarryResult(addend1, addend2);
     if (studentAnswer === noCarryResult && noCarryResult !== expectedAnswer) {
       const unitsSum = (addend1 % 10) + (addend2 % 10);
       if (unitsSum >= 10) {
         return {
           isCorrect: false,
-          errorType: 'CARRY_OMITTED',
+          errorType: 'ARITH_ADD_CARRY_OMITTED_G3',
           confidence: 0.93,
           evidence: [
             `Units ${addend1 % 10}+${addend2 % 10}=${unitsSum} generates carry; student ignored it → ${studentAnswer} vs expected ${expectedAnswer}`,
@@ -68,8 +64,7 @@ export class AdditionCarryStrategy implements RuleEngineStrategy {
       }
     }
 
-    // Rule 2: CARRY_ADDED_TO_WRONG_COLUMN — carry applied to wrong position
-    // Detect when student answer differs by exactly 10 from noCarryResult
+    // Rule 2: carry applied to wrong column
     if (
       Math.abs(studentAnswer - noCarryResult) === 10 ||
       Math.abs(studentAnswer - noCarryResult) === 100
@@ -78,7 +73,7 @@ export class AdditionCarryStrategy implements RuleEngineStrategy {
       if (unitsSum >= 10) {
         return {
           isCorrect: false,
-          errorType: 'CARRY_ADDED_TO_WRONG_COLUMN',
+          errorType: 'ARITH_ADD_CARRY_WRONG_COLUMN_G3',
           confidence: 0.87,
           evidence: [
             `Carry appears to be added to wrong column; got ${studentAnswer}`,
@@ -87,11 +82,11 @@ export class AdditionCarryStrategy implements RuleEngineStrategy {
       }
     }
 
-    // Rule 3: DIGIT_TRANSPOSITION
+    // Rule 3: digit transposition
     if (isTranspositionOf(studentAnswer, expectedAnswer)) {
       return {
         isCorrect: false,
-        errorType: 'DIGIT_TRANSPOSITION',
+        errorType: 'ARITH_TRANSV_DIGIT_TRANSPOSITION',
         confidence: 0.88,
         evidence: [
           `Digits of ${studentAnswer} are a transposition of ${expectedAnswer}`,
@@ -99,11 +94,11 @@ export class AdditionCarryStrategy implements RuleEngineStrategy {
       };
     }
 
-    // Rule 4: ARITHMETIC_FACT_ERROR — off by small magnitude
+    // Rule 4: basic arithmetic fact error — off by ≤2
     if (Math.abs(studentAnswer - expectedAnswer) <= 2) {
       return {
         isCorrect: false,
-        errorType: 'ARITHMETIC_FACT_ERROR',
+        errorType: 'ARITH_TRANSV_FACT_ERROR',
         confidence: 0.65,
         evidence: [
           `Answer differs by ${Math.abs(studentAnswer - expectedAnswer)} — likely basic fact error`,

@@ -22,10 +22,8 @@ describe('AdditionCarryStrategy', () => {
     strategy = new AdditionCarryStrategy();
   });
 
-  it('supports addition_carry and T-ADD-CARRY codes', () => {
-    expect(strategy.supports('addition_carry')).toBe(true);
-    expect(strategy.supports('T-ADD-CARRY')).toBe(true);
-    expect(strategy.supports('T-SUB-BORROW')).toBe(false);
+  it('has correct subdomainCode', () => {
+    expect(strategy.subdomainCode).toBe('ARITH_ADD');
   });
 
   it('CORRECT — returns CORRECT when student answer matches expected', () => {
@@ -47,11 +45,11 @@ describe('AdditionCarryStrategy', () => {
         studentAnswer: 55,
       }),
     );
-    expect(result.errorType).toBe('CARRY_OMITTED');
+    expect(result.errorType).toBe('ARITH_ADD_CARRY_OMITTED_G3');
     expect(result.confidence).toBeGreaterThanOrEqual(0.9);
   });
 
-  it('DIGIT_TRANSPOSITION — answer has correct digits but swapped', () => {
+  it('ARITH_TRANSV_DIGIT_TRANSPOSITION — answer has correct digits but swapped', () => {
     const result = strategy.classify(
       makeDto({
         minuend: 38,
@@ -60,10 +58,10 @@ describe('AdditionCarryStrategy', () => {
         studentAnswer: 56,
       }),
     );
-    expect(result.errorType).toBe('DIGIT_TRANSPOSITION');
+    expect(result.errorType).toBe('ARITH_TRANSV_DIGIT_TRANSPOSITION');
   });
 
-  it('ARITHMETIC_FACT_ERROR — off by ≤2 from expected', () => {
+  it('ARITH_TRANSV_FACT_ERROR — off by ≤2 from expected', () => {
     const result = strategy.classify(
       makeDto({
         minuend: 38,
@@ -72,7 +70,7 @@ describe('AdditionCarryStrategy', () => {
         studentAnswer: 64,
       }),
     );
-    expect(result.errorType).toBe('ARITHMETIC_FACT_ERROR');
+    expect(result.errorType).toBe('ARITH_TRANSV_FACT_ERROR');
   });
 
   it('UNCLASSIFIED — no rule matches', () => {
