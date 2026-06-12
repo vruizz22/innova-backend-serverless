@@ -15,6 +15,15 @@ export class MasteryController {
     return this.masteryService.getCourseMastery(courseId);
   }
 
+  @Get('course/:courseId/heatmap')
+  @ApiOperation({
+    summary: 'Student × Unit heatmap with topic drill-down (C12)',
+  })
+  @ApiParam({ name: 'courseId' })
+  async getCourseHeatmap(@Param('courseId') courseId: string) {
+    return this.masteryService.getCourseHeatmap(courseId);
+  }
+
   @Get('classroom/:classroomId')
   @ApiOperation({
     summary: 'Get mastery heatmap for one classroom (alias for course)',

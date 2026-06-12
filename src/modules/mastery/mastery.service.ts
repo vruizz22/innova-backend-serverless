@@ -205,4 +205,98 @@ export class MasteryService {
   ): Promise<CourseStudentMasteryView[]> {
     return this.getCourseMastery(courseId);
   }
+
+  /**
+   * Student × Unit heatmap (C12). pKnown per unit is the mean of its topics'
+   * pKnown (default bktPL0 when a student has no record yet). Topics are kept
+   * for the drill-down (Student × Topic). Read-only.
+   */
+  async getCourseHeatmap(courseId: string): Promise<CourseHeatmapView> {
+    await this.prisma.ensureConnected();
+
+    const [enrollments, topics] = await Promise.all([
+      this.prisma.enrollment.findMany({
+        where: { courseId, status: 'ACTIVE' },
+        include: { student: { include: { topicMastery: true } } },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      this.prisma.topic.findMany({
+        include: { unit: true },
+        orderBy: [{ unit: { sequence: 'asc' } }, { code: 'asc' }],
+      }),
+    ]);
+
+    // Distinct units in stable curricular order.
+    const unitMap = new Map<
+      string,
+      { id: string; code: string; name: string; sequence: number }
+    >();
+    for (const t of topics) {
+      if (!unitMap.has(t.unitId)) {
+        unitMap.set(t.unitId, {
+          id: t.unit.id,
+          code: t.unit.code,
+          name: t.unit.name,
+          sequence: t.unit.sequence,
+        });
+      }
+    }
+    const units = [...unitMap.values()].sort((a, b) => a.sequence - b.sequence);
+    const topicsByUnit = new Map<string, typeof topics>();
+    for (const t of topics) {
+      const list = topicsByUnit.get(t.unitId) ?? [];
+      list.push(t);
+      topicsByUnit.set(t.unitId, list);
+    }
+
+    const students = enrollments.map(({ student }) => {
+      const known = new Map(
+        student.topicMastery.map((r) => [r.topicId, r.pKnown]),
+      );
+      const topicCells = topics.map((t) => ({
+        topicId: t.id,
+        unitId: t.unitId,
+        topicCode: t.code,
+        topicName: t.name,
+        pKnown: known.get(t.id) ?? t.bktPL0,
+      }));
+      const unitCells = units.map((u) => {
+        const us = topicsByUnit.get(u.id) ?? [];
+        const sum = us.reduce(
+          (acc, t) => acc + (known.get(t.id) ?? t.bktPL0),
+          0,
+        );
+        return {
+          unitId: u.id,
+          pKnown: us.length > 0 ? sum / us.length : 0,
+          topicCount: us.length,
+        };
+      });
+      return {
+        studentId: student.id,
+        displayName: student.displayName,
+        units: unitCells,
+        topics: topicCells,
+      };
+    });
+
+    return { courseId, units, students };
+  }
+}
+
+export interface CourseHeatmapView {
+  courseId: string;
+  units: Array<{ id: string; code: string; name: string; sequence: number }>;
+  students: Array<{
+    studentId: string;
+    displayName: string;
+    units: Array<{ unitId: string; pKnown: number; topicCount: number }>;
+    topics: Array<{
+      topicId: string;
+      unitId: string;
+      topicCode: string;
+      topicName: string;
+      pKnown: number;
+    }>;
+  }>;
 }
