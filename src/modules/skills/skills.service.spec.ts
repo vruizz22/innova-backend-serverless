@@ -5,6 +5,8 @@ import { Topic } from '@prisma/client';
 const BASE_TOPIC: Topic = {
   id: 'topic-1',
   unitId: 'unit-1',
+  domainId: null,
+  subdomainId: null,
   code: 'T-SUB-BORROW',
   name: 'Resta con préstamo',
   description: 'Resta con reagrupación',
