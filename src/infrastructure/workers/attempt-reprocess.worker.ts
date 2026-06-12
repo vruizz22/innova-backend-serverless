@@ -268,13 +268,15 @@ export class AttemptReprocessWorker {
 let cachedWorker: AttemptReprocessWorker | null = null;
 
 async function getWorker(): Promise<AttemptReprocessWorker> {
-  if (!cachedWorker) {
-    const app = await NestFactory.createApplicationContext(AppModule, {
-      logger: ['error', 'warn'],
-    });
-    cachedWorker = app.get(AttemptReprocessWorker);
+  if (cachedWorker) {
+    return cachedWorker;
   }
-  return cachedWorker;
+  const app = await NestFactory.createApplicationContext(AppModule, {
+    logger: ['error', 'warn'],
+  });
+  const worker = app.get(AttemptReprocessWorker);
+  cachedWorker = worker;
+  return worker;
 }
 
 export const handler = async (event: SQSEvent): Promise<SQSBatchResponse> => {
