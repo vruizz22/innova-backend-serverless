@@ -16,7 +16,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
  */
 @Injectable()
 export class S3Adapter {
-  // private readonly logger = new Logger(S3Adapter.name);
+  private readonly logger = new Logger(S3Adapter.name);
   private readonly client = new S3Client({
     region: process.env['AWS_REGION'] ?? 'us-east-1',
   });
