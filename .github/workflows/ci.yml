@@ -34,9 +34,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://innova:innova@localhost:5432/innova_test
       MONGODB_URI: mongodb://localhost:27017/innova_test
-      COGNITO_USER_POOL_ID: us-east-1_TESTPOOL
-      COGNITO_CLIENT_ID: testclientid
-      COGNITO_REGION: us-east-1
+      SUPABASE_URL: https://test-project.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.test-key
       SQS_ATTEMPT_STREAM_URL: https://sqs.us-east-1.amazonaws.com/000000000000/attempt-stream.fifo
       SQS_LLM_CLASSIFY_URL: https://sqs.us-east-1.amazonaws.com/000000000000/llm-classify-queue
       SQS_OCR_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/000000000000/ocr-queue
@@ -82,7 +81,6 @@ jobs:
         run: pnpm jest --coverage --ci --forceExit
         env:
           JEST_JUNIT_OUTPUT_DIR: ./reports
-        # TODO-8 (M3): enforce --coverageThreshold lines/branches/functions 75% once full test suite is written
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4

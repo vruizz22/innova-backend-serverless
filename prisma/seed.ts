@@ -1,292 +1,1032 @@
 import 'dotenv/config';
-import { randomBytes, scryptSync } from 'node:crypto';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '@prisma/client';
+import {
+  ErrorSeverity,
+  ErrorSource,
+  ErrorStatus,
+  PrismaClient,
+} from '@prisma/client';
 
 const adapter = new PrismaPg({
   connectionString: process.env['DATABASE_URL']!,
 });
 const prisma = new PrismaClient({ adapter });
 
-const ERROR_TYPES = [
-  'BORROW_OMITTED',
-  'BORROW_FROM_ZERO_ERROR',
-  'SIGN_ERROR',
-  'SUBTRAHEND_MINUEND_SWAPPED',
-  'PLACE_VALUE_ERROR',
-  'BASIC_FACT_ERROR',
-  'PARTIAL_BORROW_ERROR',
-  'UNCLASSIFIED',
-] as const;
+const DEMO_PASSWORD_HASH = 'demo_hash_not_for_prod'; // dev only — real hash not needed for seed
 
-interface ItemSeed {
-  prompt: string;
-  expectedAnswer: number;
-  irtA: number;
-  irtB: number;
-}
-
-const ITEMS_BY_ERROR: Record<string, ItemSeed[]> = {
-  BORROW_OMITTED: [
-    { prompt: '53 - 26 = ?', expectedAnswer: 27, irtA: 1.2, irtB: -0.3 },
-    { prompt: '72 - 48 = ?', expectedAnswer: 24, irtA: 1.1, irtB: -0.1 },
-    { prompt: '81 - 35 = ?', expectedAnswer: 46, irtA: 1.3, irtB: 0.2 },
-    { prompt: '64 - 27 = ?', expectedAnswer: 37, irtA: 1.0, irtB: -0.5 },
-  ],
-  BORROW_FROM_ZERO_ERROR: [
-    { prompt: '300 - 47 = ?', expectedAnswer: 253, irtA: 1.4, irtB: 0.5 },
-    { prompt: '500 - 183 = ?', expectedAnswer: 317, irtA: 1.5, irtB: 0.8 },
-    { prompt: '200 - 56 = ?', expectedAnswer: 144, irtA: 1.3, irtB: 0.4 },
-    { prompt: '400 - 123 = ?', expectedAnswer: 277, irtA: 1.2, irtB: 0.6 },
-  ],
-  SIGN_ERROR: [
-    { prompt: '35 - 48 = ?', expectedAnswer: -13, irtA: 1.0, irtB: 0.0 },
-    { prompt: '24 - 57 = ?', expectedAnswer: -33, irtA: 1.1, irtB: 0.1 },
-    { prompt: '12 - 30 = ?', expectedAnswer: -18, irtA: 0.9, irtB: -0.2 },
-    { prompt: '41 - 65 = ?', expectedAnswer: -24, irtA: 1.2, irtB: 0.3 },
-  ],
-  SUBTRAHEND_MINUEND_SWAPPED: [
-    { prompt: '46 - 83 = ?', expectedAnswer: -37, irtA: 1.3, irtB: 0.4 },
-    { prompt: '23 - 74 = ?', expectedAnswer: -51, irtA: 1.1, irtB: 0.2 },
-    { prompt: '15 - 42 = ?', expectedAnswer: -27, irtA: 1.0, irtB: 0.1 },
-    { prompt: '37 - 91 = ?', expectedAnswer: -54, irtA: 1.4, irtB: 0.6 },
-  ],
-  PLACE_VALUE_ERROR: [
-    { prompt: '45 - 18 = ?', expectedAnswer: 27, irtA: 1.5, irtB: 0.7 },
-    { prompt: '73 - 29 = ?', expectedAnswer: 44, irtA: 1.4, irtB: 0.5 },
-    { prompt: '62 - 37 = ?', expectedAnswer: 25, irtA: 1.3, irtB: 0.3 },
-    { prompt: '84 - 46 = ?', expectedAnswer: 38, irtA: 1.2, irtB: 0.4 },
-  ],
-  BASIC_FACT_ERROR: [
-    { prompt: '13 - 7 = ?', expectedAnswer: 6, irtA: 0.8, irtB: -1.0 },
-    { prompt: '15 - 8 = ?', expectedAnswer: 7, irtA: 0.9, irtB: -0.8 },
-    { prompt: '12 - 5 = ?', expectedAnswer: 7, irtA: 0.8, irtB: -0.9 },
-    { prompt: '16 - 9 = ?', expectedAnswer: 7, irtA: 1.0, irtB: -0.7 },
-  ],
-  PARTIAL_BORROW_ERROR: [
-    { prompt: '342 - 185 = ?', expectedAnswer: 157, irtA: 1.6, irtB: 0.9 },
-    { prompt: '524 - 276 = ?', expectedAnswer: 248, irtA: 1.5, irtB: 0.8 },
-    { prompt: '631 - 357 = ?', expectedAnswer: 274, irtA: 1.4, irtB: 0.7 },
-    { prompt: '413 - 168 = ?', expectedAnswer: 245, irtA: 1.5, irtB: 0.8 },
-  ],
-  UNCLASSIFIED: [
-    { prompt: '999 - 567 = ?', expectedAnswer: 432, irtA: 2.0, irtB: 1.5 },
-    { prompt: '1024 - 768 = ?', expectedAnswer: 256, irtA: 1.8, irtB: 1.2 },
-    { prompt: '2001 - 999 = ?', expectedAnswer: 1002, irtA: 1.9, irtB: 1.4 },
-    { prompt: '500 - 257 = ?', expectedAnswer: 243, irtA: 1.6, irtB: 1.0 },
-  ],
+// Demo Supabase UUIDs (deterministic for dev/testing)
+const DEMO_SUPABASE_UIDS = {
+  teacher: '00000000-0000-0000-0000-000000000001',
+  parent: '00000000-0000-0000-0000-000000000021',
+  student1: '00000000-0000-0000-0000-000000000011',
+  student2: '00000000-0000-0000-0000-000000000012',
+  student3: '00000000-0000-0000-0000-000000000013',
+  student4: '00000000-0000-0000-0000-000000000014',
+  student5: '00000000-0000-0000-0000-000000000015',
 };
 
-const DEMO_PASSWORD = 'Innova123!';
-
-function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString('hex');
-  const derivedKey = scryptSync(password, salt, 64);
-  return `${salt}.${derivedKey.toString('hex')}`;
-}
-
 async function main() {
-  console.log('🌱 Starting seed...');
+  console.log('🌱 Starting seed v7...');
+
+  // Organization + School
+  const org = await prisma.organization.upsert({
+    where: { id: 'seed-org-001' },
+    update: {},
+    create: {
+      id: 'seed-org-001',
+      name: 'Innova Demo Network',
+      country: 'CL',
+      plan: 'PILOT',
+    },
+  });
 
   const school = await prisma.school.upsert({
     where: { id: 'seed-school-001' },
     update: {},
-    create: { id: 'seed-school-001', name: 'Escuela Innova Demo' },
+    create: {
+      id: 'seed-school-001',
+      organizationId: org.id,
+      name: 'Escuela Innova Demo',
+      rbd: 'DEMO-001',
+    },
   });
 
-  const classroom = await prisma.classroom.upsert({
-    where: { id: 'seed-classroom-001' },
+  // Subject
+  const subject = await prisma.subject.upsert({
+    where: { code: 'MATH' },
     update: {},
     create: {
-      id: 'seed-classroom-001',
-      name: '3° Básico A',
-      schoolId: school.id,
+      id: 'seed-subject-001',
+      code: 'MATH',
+      name: 'Matemáticas',
+      language: 'es',
     },
   });
 
-  // Demo Cognito subjects (deterministic UUIDs for testing)
-  const DEMO_COGNITO_SUBS = {
-    teacher: 'us-east-1:00000000-0000-0000-0000-000000000001',
-    parent: 'us-east-1:00000000-0000-0000-0000-000000000021',
-    student1: 'us-east-1:00000000-0000-0000-0000-000000000011',
-    student2: 'us-east-1:00000000-0000-0000-0000-000000000012',
-    student3: 'us-east-1:00000000-0000-0000-0000-000000000013',
-    student4: 'us-east-1:00000000-0000-0000-0000-000000000014',
-    student5: 'us-east-1:00000000-0000-0000-0000-000000000015',
-  };
+  // Curriculum
+  const curriculum = await prisma.curriculum.upsert({
+    where: {
+      subjectId_country_version: {
+        subjectId: subject.id,
+        country: 'CL',
+        version: '1.0',
+      },
+    },
+    update: {},
+    create: {
+      id: 'seed-curriculum-001',
+      subjectId: subject.id,
+      country: 'CL',
+      name: 'Matemáticas básica chilena 3°-6° 2026',
+      version: '1.0',
+    },
+  });
 
+  // Units
+  const unit3 = await prisma.unit.upsert({
+    where: {
+      curriculumId_code: { curriculumId: curriculum.id, code: 'U1-3B-NUMEROS' },
+    },
+    update: {},
+    create: {
+      id: 'seed-unit-001',
+      curriculumId: curriculum.id,
+      gradeLevel: 3,
+      sequence: 1,
+      code: 'U1-3B-NUMEROS',
+      name: 'El mundo de los números',
+    },
+  });
+
+  const unit5 = await prisma.unit.upsert({
+    where: {
+      curriculumId_code: {
+        curriculumId: curriculum.id,
+        code: 'U3-5B-FRACCIONES',
+      },
+    },
+    update: {},
+    create: {
+      id: 'seed-unit-003',
+      curriculumId: curriculum.id,
+      gradeLevel: 5,
+      sequence: 3,
+      code: 'U3-5B-FRACCIONES',
+      name: 'Los animales — Fracciones',
+    },
+  });
+
+  // Topics
+  const topicSubBorrow = await prisma.topic.upsert({
+    where: { unitId_code: { unitId: unit3.id, code: 'T-SUB-BORROW' } },
+    update: {},
+    create: {
+      id: 'seed-topic-001',
+      unitId: unit3.id,
+      code: 'T-SUB-BORROW',
+      name: 'Sustracción con préstamo',
+      description: 'Resta con reagrupación para 3°-4° básico',
+      bktPL0: 0.3,
+      bktPTransit: 0.1,
+      bktPSlip: 0.1,
+      bktPGuess: 0.2,
+    },
+  });
+
+  const topicAddCarry = await prisma.topic.upsert({
+    where: { unitId_code: { unitId: unit3.id, code: 'T-ADD-CARRY' } },
+    update: {},
+    create: {
+      id: 'seed-topic-002',
+      unitId: unit3.id,
+      code: 'T-ADD-CARRY',
+      name: 'Suma con llevada',
+      description: 'Suma con reagrupación de decenas',
+      bktPL0: 0.3,
+      bktPTransit: 0.1,
+      bktPSlip: 0.1,
+      bktPGuess: 0.2,
+    },
+  });
+
+  const topicFracSame = await prisma.topic.upsert({
+    where: { unitId_code: { unitId: unit5.id, code: 'T-FRAC-SAME-DENOM' } },
+    update: {},
+    create: {
+      id: 'seed-topic-003',
+      unitId: unit5.id,
+      code: 'T-FRAC-SAME-DENOM',
+      name: 'Suma/resta de fracciones con mismo denominador',
+      bktPL0: 0.3,
+      bktPTransit: 0.1,
+      bktPSlip: 0.1,
+      bktPGuess: 0.2,
+    },
+  });
+
+  // Prerequisites: addition_carry before subtraction_borrow
+  await prisma.topicPrerequisite.upsert({
+    where: {
+      topicId_prerequisiteTopicId: {
+        topicId: topicSubBorrow.id,
+        prerequisiteTopicId: topicAddCarry.id,
+      },
+    },
+    update: {},
+    create: {
+      topicId: topicSubBorrow.id,
+      prerequisiteTopicId: topicAddCarry.id,
+    },
+  });
+
+  console.log(
+    `✅ Curriculum: org → school → subject → curriculum → 3 units → 3 topics`,
+  );
+
+  // v8: Domains + Subdomains — full 17-domain taxonomy (see docs/error-taxonomy/README.md §3).
+  // The error catalog importer (scripts/import-error-catalog.ts) maps each entry's
+  // domain_code → domainId, so EVERY domain referenced by error_catalog.jsonl must exist here.
+  // subdomain_code is stored as a plain string on ErrorTag, but we seed Subdomain rows too
+  // for the rule engine factory and dashboard filtering.
+  const DOMAIN_TAXONOMY: Array<{
+    code: string;
+    name: string;
+    subdomains: Array<{ code: string; name: string }>;
+  }> = [
+    {
+      code: 'ARITH',
+      name: 'Aritmética de números naturales',
+      subdomains: [
+        { code: 'COUNT', name: 'Conteo y orden' },
+        { code: 'PLACE_VALUE', name: 'Valor posicional' },
+        { code: 'ADD', name: 'Adición' },
+        { code: 'SUB', name: 'Sustracción' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'FACT_RECALL', name: 'Hechos básicos' },
+      ],
+    },
+    {
+      code: 'INT',
+      name: 'Aritmética de enteros',
+      subdomains: [
+        { code: 'SIGN', name: 'Regla de signos' },
+        { code: 'ADD', name: 'Adición de enteros' },
+        { code: 'SUB', name: 'Sustracción de enteros' },
+        { code: 'MUL', name: 'Multiplicación de enteros' },
+        { code: 'DIV', name: 'División de enteros' },
+        { code: 'ABS', name: 'Valor absoluto' },
+        { code: 'COMPARE', name: 'Orden y comparación' },
+      ],
+    },
+    {
+      code: 'FRACT',
+      name: 'Fracciones',
+      subdomains: [
+        { code: 'REPR', name: 'Representación' },
+        { code: 'EQUIV', name: 'Equivalencia' },
+        { code: 'REDUCE', name: 'Simplificación' },
+        { code: 'COMPARE', name: 'Comparación' },
+        { code: 'ADDSUB', name: 'Suma y resta' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'MIXED', name: 'Números mixtos' },
+      ],
+    },
+    {
+      code: 'DEC',
+      name: 'Números decimales',
+      subdomains: [
+        { code: 'REPR', name: 'Representación' },
+        { code: 'COMPARE', name: 'Comparación y orden' },
+        { code: 'ADD', name: 'Adición' },
+        { code: 'SUB', name: 'Sustracción' },
+        { code: 'MUL', name: 'Multiplicación' },
+        { code: 'DIV', name: 'División' },
+        { code: 'ROUND', name: 'Redondeo y aproximación' },
+        { code: 'FRACT_CONV', name: 'Conversión fracción↔decimal' },
+      ],
+    },
+    {
+      code: 'RATIO',
+      name: 'Razones, proporciones y porcentajes',
+      subdomains: [
+        { code: 'RATIO', name: 'Razones' },
+        { code: 'PROPORTION', name: 'Proporciones' },
+        { code: 'PERCENT', name: 'Porcentajes' },
+        { code: 'RULE_OF_THREE', name: 'Regla de tres' },
+      ],
+    },
+    {
+      code: 'ALGEBRA',
+      name: 'Álgebra (lineal y cuadrática)',
+      subdomains: [
+        { code: 'EXPR', name: 'Expresiones algebraicas' },
+        { code: 'MONOMIAL', name: 'Monomios y términos semejantes' },
+        { code: 'EQ_LINEAR', name: 'Ecuaciones lineales' },
+        { code: 'INEQ_LINEAR', name: 'Inecuaciones lineales' },
+        { code: 'SYSTEM_2X2', name: 'Sistemas 2×2' },
+        { code: 'ABS_EQ', name: 'Ecuaciones con valor absoluto' },
+        { code: 'EXPAND', name: 'Productos notables y expansión' },
+        { code: 'FACTOR', name: 'Factorización' },
+        { code: 'EQ_QUAD', name: 'Ecuaciones cuadráticas' },
+        { code: 'INEQ_QUAD', name: 'Inecuaciones cuadráticas' },
+        { code: 'POLY', name: 'Polinomios' },
+      ],
+    },
+    {
+      code: 'POW',
+      name: 'Potencias, raíces y exponentes',
+      subdomains: [
+        { code: 'POWER', name: 'Potencias' },
+        { code: 'ROOT', name: 'Raíces' },
+        { code: 'RATIONAL_EXP', name: 'Exponente racional' },
+        { code: 'RATIONALIZE', name: 'Racionalización' },
+      ],
+    },
+    {
+      code: 'FUNC',
+      name: 'Funciones',
+      subdomains: [
+        { code: 'EVAL', name: 'Evaluación' },
+        { code: 'DOMAIN', name: 'Dominio' },
+        { code: 'RANGE', name: 'Recorrido' },
+        { code: 'COMPOSITION', name: 'Composición' },
+        { code: 'INVERSE', name: 'Función inversa' },
+        { code: 'LINEAR', name: 'Función lineal y afín' },
+        { code: 'QUAD', name: 'Función cuadrática' },
+        { code: 'EXP', name: 'Función exponencial' },
+        { code: 'RATIONAL', name: 'Función racional' },
+      ],
+    },
+    {
+      code: 'GEOM',
+      name: 'Geometría plana',
+      subdomains: [
+        { code: 'ANGLE', name: 'Ángulos' },
+        { code: 'TRIANGLE', name: 'Triángulos' },
+        { code: 'QUAD_FIG', name: 'Cuadriláteros y polígonos' },
+        { code: 'CIRCLE', name: 'Circunferencia y círculo' },
+        { code: 'AREA', name: 'Área' },
+        { code: 'PERIMETER', name: 'Perímetro' },
+        { code: 'SIMILARITY', name: 'Semejanza' },
+        { code: 'CONGRUENCE', name: 'Congruencia' },
+        { code: 'TRANSFORM', name: 'Transformaciones isométricas' },
+      ],
+    },
+    {
+      code: 'GEOM3D',
+      name: 'Geometría 3D y volumen',
+      subdomains: [
+        { code: 'PRISM', name: 'Prismas' },
+        { code: 'CYLINDER', name: 'Cilindros' },
+        { code: 'PYRAMID', name: 'Pirámides' },
+        { code: 'CONE', name: 'Conos' },
+        { code: 'SPHERE', name: 'Esferas' },
+        { code: 'COMPOSITE', name: 'Cuerpos compuestos' },
+      ],
+    },
+    {
+      code: 'TRIG',
+      name: 'Trigonometría',
+      subdomains: [
+        { code: 'RATIO', name: 'Razones trigonométricas' },
+        { code: 'IDENTITY', name: 'Identidades' },
+        { code: 'UNIT_CIRCLE', name: 'Círculo unitario' },
+        { code: 'RIGHT_TRIANGLE', name: 'Triángulo rectángulo' },
+        { code: 'EQ_TRIG', name: 'Ecuaciones trigonométricas' },
+        { code: 'GRAPH', name: 'Gráficas trigonométricas' },
+      ],
+    },
+    {
+      code: 'STAT',
+      name: 'Estadística y probabilidad',
+      subdomains: [
+        { code: 'MEASURE_CENTRAL', name: 'Medidas de tendencia central' },
+        { code: 'MEASURE_DISPERSION', name: 'Medidas de dispersión' },
+        { code: 'PROB', name: 'Probabilidad' },
+        { code: 'COMBINATORICS', name: 'Combinatoria' },
+      ],
+    },
+    {
+      code: 'DATA',
+      name: 'Tratamiento de datos',
+      subdomains: [
+        { code: 'TABLE', name: 'Tablas' },
+        { code: 'BAR', name: 'Gráfico de barras' },
+        { code: 'LINE', name: 'Gráfico de líneas' },
+        { code: 'PIE', name: 'Gráfico circular' },
+        { code: 'PICTOGRAM', name: 'Pictograma' },
+        { code: 'FREQUENCY', name: 'Frecuencia' },
+      ],
+    },
+    {
+      code: 'LOG',
+      name: 'Logaritmos',
+      subdomains: [
+        { code: 'DEF', name: 'Definición' },
+        { code: 'PROPERTY', name: 'Propiedades' },
+        { code: 'EQ_LOG', name: 'Ecuaciones logarítmicas' },
+      ],
+    },
+    {
+      code: 'SEQ',
+      name: 'Sucesiones y series',
+      subdomains: [
+        { code: 'PATTERN', name: 'Patrones' },
+        { code: 'ARITHMETIC', name: 'Sucesión aritmética' },
+        { code: 'GEOMETRIC', name: 'Sucesión geométrica' },
+        { code: 'RECURSIVE', name: 'Sucesión recursiva' },
+      ],
+    },
+    {
+      code: 'COORD',
+      name: 'Geometría analítica y vectores',
+      subdomains: [
+        { code: 'PLOT', name: 'Ubicación en el plano' },
+        { code: 'DISTANCE', name: 'Distancia' },
+        { code: 'MIDPOINT', name: 'Punto medio' },
+        { code: 'LINE_EQ', name: 'Ecuación de la recta' },
+        { code: 'VECTOR', name: 'Vectores' },
+      ],
+    },
+    {
+      code: 'TRANSV',
+      name: 'Errores transversales',
+      subdomains: [
+        { code: 'ALIGNMENT', name: 'Alineación de columnas' },
+        { code: 'TRANSPOSITION', name: 'Transposición de dígitos' },
+        { code: 'NOTATION', name: 'Notación' },
+        { code: 'UNIT', name: 'Unidades de medida' },
+        { code: 'ORDER', name: 'Orden de operaciones' },
+      ],
+    },
+  ];
+
+  const domainByCode = new Map<string, { id: string }>();
+  const subdomainByKey = new Map<string, { id: string }>();
+  for (const d of DOMAIN_TAXONOMY) {
+    const domain = await prisma.domain.upsert({
+      where: { code: d.code },
+      update: { name: d.name },
+      create: { code: d.code, name: d.name },
+    });
+    domainByCode.set(d.code, domain);
+    for (const s of d.subdomains) {
+      const sub = await prisma.subdomain.upsert({
+        where: { domainId_code: { domainId: domain.id, code: s.code } },
+        update: { name: s.name },
+        create: { domainId: domain.id, code: s.code, name: s.name },
+      });
+      subdomainByKey.set(`${d.code}:${s.code}`, sub);
+    }
+  }
+
+  // Back-compat aliases used by the rest of this seed (topic linking + curated ErrorTags).
+  const domainArith = domainByCode.get('ARITH')!;
+  const domainFract = domainByCode.get('FRACT')!;
+  const subArithSub = subdomainByKey.get('ARITH:SUB')!;
+  const subArithAdd = subdomainByKey.get('ARITH:ADD')!;
+  const subFractAddSub = subdomainByKey.get('FRACT:ADDSUB')!;
+  const subdomainCount = DOMAIN_TAXONOMY.reduce(
+    (n, d) => n + d.subdomains.length,
+    0,
+  );
+  console.log(
+    `✅ ${DOMAIN_TAXONOMY.length} Domains + ${subdomainCount} Subdomains upserted`,
+  );
+
+  // Link topics to their domains/subdomains
+  await prisma.topic.update({
+    where: { id: topicSubBorrow.id },
+    data: { domainId: domainArith.id, subdomainId: subArithSub.id },
+  });
+  await prisma.topic.update({
+    where: { id: topicAddCarry.id },
+    data: { domainId: domainArith.id, subdomainId: subArithAdd.id },
+  });
+  await prisma.topic.update({
+    where: { id: topicFracSame.id },
+    data: { domainId: domainFract.id, subdomainId: subFractAddSub.id },
+  });
+  console.log('✅ Topics linked to domains/subdomains');
+
+  // Error Tags — v8 schema with enums
+  const errorTagDefs: Array<{
+    code: string;
+    name: string;
+    topicScope: string | null;
+    description: string;
+    domainId: string | null;
+    subdomainCode: string | null;
+    severity: ErrorSeverity;
+    source: ErrorSource;
+    status: ErrorStatus;
+  }> = [
+    {
+      code: 'ARITH_SUB_BORROW_OMITTED_TENS_G3',
+      name: 'Borrow omitido — decenas',
+      topicScope: 'T-SUB-BORROW',
+      description: 'Omite préstamo columna unidades → decenas',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_SUB_BORROW_OMITTED_HUNDREDS_G3',
+      name: 'Borrow omitido — centenas',
+      topicScope: 'T-SUB-BORROW',
+      description: 'Omite préstamo columna centenas',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_SUB_MINUEND_SUBTRAHEND_SWAPPED_G3',
+      name: 'Minuendo y sustraendo invertidos',
+      topicScope: 'T-SUB-BORROW',
+      description: 'Resta al revés: sustrae mayor del menor en cada columna',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_SUB_BORROW_FROM_ZERO_G3',
+      name: 'Borrow desde cero — error',
+      topicScope: 'T-SUB-BORROW',
+      description:
+        'Maneja incorrectamente el préstamo desde columna con dígito 0',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_SUB_BORROW_PROPAGATION_STOP_G3',
+      name: 'Propagación del borrow detenida',
+      topicScope: 'T-SUB-BORROW',
+      description: 'Detiene propagación del préstamo en cadena de ceros',
+      domainId: domainArith.id,
+      subdomainCode: 'SUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_TRANSV_DIGIT_TRANSPOSITION',
+      name: 'Transposición de dígitos',
+      topicScope: null,
+      description: 'Dígitos transpuestos en el resultado final',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_TRANSV_COLUMN_MISALIGNMENT',
+      name: 'Desalineación de columnas',
+      topicScope: null,
+      description: 'Alineación vertical incorrecta entre columnas',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_TRANSV_FACT_ERROR',
+      name: 'Error en hecho básico',
+      topicScope: null,
+      description: 'Error en hecho aritmético básico (off-by-1/2)',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_ADD_CARRY_OMITTED_G3',
+      name: 'Llevada omitida',
+      topicScope: 'T-ADD-CARRY',
+      description: 'No agrega la llevada a la columna siguiente',
+      domainId: domainArith.id,
+      subdomainCode: 'ADD',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_ADD_CARRY_WRONG_COLUMN_G3',
+      name: 'Llevada en columna incorrecta',
+      topicScope: 'T-ADD-CARRY',
+      description: 'Agrega la llevada a una columna equivocada',
+      domainId: domainArith.id,
+      subdomainCode: 'ADD',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'FRACT_ADDSUB_SUM_NUMERATOR_AND_DENOMINATOR_G5',
+      name: 'Suma numeradores y denominadores por separado',
+      topicScope: 'T-FRAC-SAME-DENOM',
+      description:
+        'Suma o resta numeradores Y denominadores independientemente',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'FRACT_ADDSUB_IMPROPER_NOT_REDUCED_G5',
+      name: 'Fracción impropia sin reducir',
+      topicScope: 'T-FRAC-SAME-DENOM',
+      description: 'Resultado no reducido a forma más simple',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'FRACT_ADDSUB_INVERTED_FRACTION_G5',
+      name: 'Fracción invertida',
+      topicScope: 'T-FRAC-SAME-DENOM',
+      description:
+        'Inversión accidental de numerador y denominador en el resultado',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'FRACT_ADDSUB_WHOLE_NUMBER_LOST_G5',
+      name: 'Parte entera perdida',
+      topicScope: 'T-FRAC-SAME-DENOM',
+      description: 'Pierde la parte entera al operar con números mixtos',
+      domainId: domainFract.id,
+      subdomainCode: 'ADDSUB',
+      severity: ErrorSeverity.HIGH,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'ARITH_TRANSV_PLACE_VALUE_ERROR',
+      name: 'Error de valor posicional',
+      topicScope: null,
+      description:
+        'Respuesta desplazada un factor de 10 respecto al resultado correcto',
+      domainId: domainArith.id,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'CORRECT',
+      name: 'Correcto',
+      topicScope: null,
+      description: 'Respuesta correcta',
+      domainId: null,
+      subdomainCode: null,
+      severity: ErrorSeverity.LOW,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+    {
+      code: 'UNCLASSIFIED',
+      name: 'Sin clasificar',
+      topicScope: null,
+      description: 'Sin clasificación determinista — encolado para LLM',
+      domainId: null,
+      subdomainCode: null,
+      severity: ErrorSeverity.MED,
+      source: ErrorSource.CURATED,
+      status: ErrorStatus.ACTIVE,
+    },
+  ];
+
+  for (const def of errorTagDefs) {
+    await prisma.errorTag.upsert({
+      where: { code: def.code },
+      update: {},
+      create: def,
+    });
+  }
+  console.log(
+    `✅ ${errorTagDefs.length} ErrorTags created (v8 naming convention)`,
+  );
+
+  // Users
   const teacherUser = await prisma.user.upsert({
     where: { email: 'teacher@innova.demo' },
-    update: {
-      cognitoSub: DEMO_COGNITO_SUBS.teacher,
-      authRole: 'teacher',
-      passwordHash: hashPassword(DEMO_PASSWORD),
-    },
+    update: { supabaseUid: DEMO_SUPABASE_UIDS.teacher, authRole: 'teacher' },
     create: {
       email: 'teacher@innova.demo',
-      cognitoSub: DEMO_COGNITO_SUBS.teacher,
+      supabaseUid: DEMO_SUPABASE_UIDS.teacher,
       authRole: 'teacher',
-      passwordHash: hashPassword(DEMO_PASSWORD),
+      passwordHash: DEMO_PASSWORD_HASH,
     },
   });
 
   const teacher = await prisma.teacher.upsert({
-    where: { id: 'seed-teacher-001' },
+    where: { userId: teacherUser.id },
     update: {},
-    create: { id: 'seed-teacher-001', userId: teacherUser.id },
+    create: {
+      id: 'seed-teacher-001',
+      userId: teacherUser.id,
+      displayName: 'Prof. Demo',
+    },
   });
-  console.log(
-    `✅ Teacher: ${teacher.id} (cognitoSub: ${DEMO_COGNITO_SUBS.teacher})`,
-  );
 
+  // Course
+  const course = await prisma.course.upsert({
+    where: { id: 'seed-course-001' },
+    update: { name: '4° A · Matemáticas' },
+    create: {
+      id: 'seed-course-001',
+      schoolId: school.id,
+      subjectId: subject.id,
+      name: '4° A · Matemáticas',
+      gradeLevel: 4,
+      academicYear: 2026,
+    },
+  });
+
+  await prisma.courseTeacher.upsert({
+    where: {
+      courseId_teacherId: { courseId: course.id, teacherId: teacher.id },
+    },
+    update: {},
+    create: { courseId: course.id, teacherId: teacher.id, role: 'LEAD' },
+  });
+
+  console.log(`✅ Teacher ${teacher.id} linked to course "${course.name}"`);
+
+  // Students
   const studentData = [
-    { email: 'student1@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student1 },
-    { email: 'student2@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student2 },
-    { email: 'student3@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student3 },
-    { email: 'student4@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student4 },
-    { email: 'student5@innova.demo', cognitoSub: DEMO_COGNITO_SUBS.student5 },
+    {
+      email: 'student1@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.student1,
+      displayName: 'Diego Vega',
+    },
+    {
+      email: 'student2@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.student2,
+      displayName: 'Valentina Reyes',
+    },
+    {
+      email: 'student3@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.student3,
+      displayName: 'Matías Torres',
+    },
+    {
+      email: 'student4@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.student4,
+      displayName: 'Camila Soto',
+    },
+    {
+      email: 'student5@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.student5,
+      displayName: 'Benjamín Muñoz',
+    },
   ];
 
+  const studentIds: string[] = [];
   for (let i = 0; i < studentData.length; i++) {
-    const { email, cognitoSub } = studentData[i];
+    const { email, supabaseUid, displayName } = studentData[i];
     const sUser = await prisma.user.upsert({
       where: { email },
-      update: {
-        cognitoSub,
-        email,
-        authRole: 'student',
-        passwordHash: hashPassword(DEMO_PASSWORD),
-      },
+      update: { supabaseUid, authRole: 'student' },
       create: {
         email,
-        cognitoSub,
+        supabaseUid,
         authRole: 'student',
-        passwordHash: hashPassword(DEMO_PASSWORD),
+        passwordHash: DEMO_PASSWORD_HASH,
       },
     });
-    await prisma.student.upsert({
-      where: { id: `seed-student-00${i + 1}` },
+    const student = await prisma.student.upsert({
+      where: { userId: sUser.id },
       update: {},
-      create: {
-        id: `seed-student-00${i + 1}`,
-        userId: sUser.id,
-        classroomId: classroom.id,
+      create: { id: `seed-student-00${i + 1}`, userId: sUser.id, displayName },
+    });
+    studentIds.push(student.id);
+
+    await prisma.enrollment.upsert({
+      where: {
+        courseId_studentId: { courseId: course.id, studentId: student.id },
       },
+      update: {},
+      create: { courseId: course.id, studentId: student.id, status: 'ACTIVE' },
     });
   }
-  console.log('✅ 5 Students created with cognitoSub linking');
+  console.log(`✅ 5 Students enrolled in course`);
 
+  // Parent
   const parentUser = await prisma.user.upsert({
     where: { email: 'parent@innova.demo' },
-    update: {
-      cognitoSub: DEMO_COGNITO_SUBS.parent,
-      authRole: 'parent',
-      passwordHash: hashPassword(DEMO_PASSWORD),
-    },
+    update: { supabaseUid: DEMO_SUPABASE_UIDS.parent, authRole: 'parent' },
     create: {
       email: 'parent@innova.demo',
-      cognitoSub: DEMO_COGNITO_SUBS.parent,
+      supabaseUid: DEMO_SUPABASE_UIDS.parent,
       authRole: 'parent',
-      passwordHash: hashPassword(DEMO_PASSWORD),
+      passwordHash: DEMO_PASSWORD_HASH,
     },
   });
 
   const parent = await prisma.parent.upsert({
-    where: { id: 'seed-parent-001' },
+    where: { userId: parentUser.id },
     update: {},
-    create: { id: 'seed-parent-001', userId: parentUser.id },
+    create: {
+      id: 'seed-parent-001',
+      userId: parentUser.id,
+      displayName: 'Apoderado Demo',
+    },
   });
 
   await prisma.parentLink.upsert({
-    where: { id: 'seed-parent-link-001' },
-    update: {},
-    create: {
-      id: 'seed-parent-link-001',
-      parentId: parent.id,
-      studentId: 'seed-student-001',
-    },
-  });
-  console.log(`✅ Parent: ${parent.id} linked to seed-student-001`);
-
-  const skill = await prisma.skill.upsert({
-    where: { key: 'subtraction_borrow' },
-    update: {},
-    create: {
-      key: 'subtraction_borrow',
-      name: 'Sustracción con préstamo',
-      description: 'Resta con reagrupación para 3° básico',
-    },
-  });
-
-  await prisma.skillBKTParams.upsert({
-    where: { skillId: skill.id },
-    update: {},
-    create: {
-      skillId: skill.id,
-      pL0: 0.3,
-      pT: 0.1,
-      pS: 0.1,
-      pG: 0.2,
-    },
-  });
-  console.log(`✅ Skill + BKT params: ${skill.key}`);
-
-  await prisma.item.deleteMany({
     where: {
-      skillId: skill.id,
-      attempts: { none: {} },
+      parentId_studentId: { parentId: parent.id, studentId: studentIds[0] },
+    },
+    update: {},
+    create: {
+      parentId: parent.id,
+      studentId: studentIds[0],
+      relationship: 'PADRE',
     },
   });
 
-  let itemCount = 0;
-  for (const [errorType, items] of Object.entries(ITEMS_BY_ERROR)) {
-    for (let index = 0; index < items.length; index++) {
-      const item = items[index];
-      await prisma.item.upsert({
-        where: { id: `seed-item-${errorType.toLowerCase()}-${index + 1}` },
-        update: {
-          content: { prompt: item.prompt, expectedAnswer: item.expectedAnswer },
-          irtA: item.irtA,
-          irtB: item.irtB,
-        },
-        create: {
-          id: `seed-item-${errorType.toLowerCase()}-${index + 1}`,
-          skillId: skill.id,
-          content: { prompt: item.prompt, expectedAnswer: item.expectedAnswer },
-          irtA: item.irtA,
-          irtB: item.irtB,
-        },
-      });
-      itemCount++;
-    }
+  console.log(`✅ Parent linked to Diego Vega`);
+
+  // Exercises for subtraction_borrow topic
+  const exerciseDefs = [
+    {
+      id: 'seed-ex-sub-001',
+      prompt: '53 - 26 = ?',
+      expectedAnswer: 27,
+      irtA: 1.2,
+      irtB: -0.3,
+    },
+    {
+      id: 'seed-ex-sub-002',
+      prompt: '72 - 48 = ?',
+      expectedAnswer: 24,
+      irtA: 1.1,
+      irtB: -0.1,
+    },
+    {
+      id: 'seed-ex-sub-003',
+      prompt: '81 - 35 = ?',
+      expectedAnswer: 46,
+      irtA: 1.3,
+      irtB: 0.2,
+    },
+    {
+      id: 'seed-ex-sub-004',
+      prompt: '64 - 27 = ?',
+      expectedAnswer: 37,
+      irtA: 1.0,
+      irtB: -0.5,
+    },
+    {
+      id: 'seed-ex-sub-005',
+      prompt: '300 - 47 = ?',
+      expectedAnswer: 253,
+      irtA: 1.4,
+      irtB: 0.5,
+    },
+    {
+      id: 'seed-ex-sub-006',
+      prompt: '500 - 183 = ?',
+      expectedAnswer: 317,
+      irtA: 1.5,
+      irtB: 0.8,
+    },
+    {
+      id: 'seed-ex-sub-007',
+      prompt: '13 - 7 = ?',
+      expectedAnswer: 6,
+      irtA: 0.8,
+      irtB: -1.0,
+    },
+    {
+      id: 'seed-ex-sub-008',
+      prompt: '342 - 185 = ?',
+      expectedAnswer: 157,
+      irtA: 1.6,
+      irtB: 0.9,
+    },
+  ];
+
+  for (const def of exerciseDefs) {
+    await prisma.exercise.upsert({
+      where: { id: def.id },
+      update: {},
+      create: {
+        id: def.id,
+        topicId: topicSubBorrow.id,
+        source: 'SYSTEM',
+        content: { prompt: def.prompt, expectedAnswer: def.expectedAnswer },
+        irtA: def.irtA,
+        irtB: def.irtB,
+        status: 'ACTIVE',
+      },
+    });
   }
-  console.log(`✅ ${itemCount} Items created for subtraction_borrow`);
   console.log(
-    `\n🎉 Seed complete! School: "${school.name}", Classroom: "${classroom.name}"`,
+    `✅ ${exerciseDefs.length} Exercises created for subtraction_borrow`,
   );
-  console.log(`   Teacher ID: ${teacher.id}`);
-  console.log(`   Skill ID: ${skill.id}`);
-  console.log(`   Error types covered: ${ERROR_TYPES.join(', ')}`);
-  console.log(
-    `\n📌 Demo Cognito mapping (for real Cognito JWT validation in tests):`,
-  );
-  console.log(`   teacher@innova.demo → ${DEMO_COGNITO_SUBS.teacher}`);
-  console.log(`   parent@innova.demo → ${DEMO_COGNITO_SUBS.parent}`);
-  console.log(
-    `\n💡 To add real Cognito groups, run AWS CLI commands (after user signup):`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username teacher@innova.demo --group-name TEACHER`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username student1@innova.demo --group-name STUDENT`,
-  );
-  console.log(
-    `   aws cognito-idp admin-add-user-to-group --user-pool-id <POOL_ID> --username parent@innova.demo --group-name PARENT`,
-  );
-  console.log(
-    `\n📝 Demo users are seeded with hardcoded cognitoSub for local testing.`,
-  );
+
+  // StudentTopicMastery
+  const masteryData = [
+    { studentIdx: 0, topicId: topicSubBorrow.id, pKnown: 0.22 },
+    { studentIdx: 0, topicId: topicAddCarry.id, pKnown: 0.55 },
+    { studentIdx: 1, topicId: topicSubBorrow.id, pKnown: 0.82 },
+    { studentIdx: 1, topicId: topicAddCarry.id, pKnown: 0.88 },
+    { studentIdx: 2, topicId: topicSubBorrow.id, pKnown: 0.68 },
+    { studentIdx: 2, topicId: topicAddCarry.id, pKnown: 0.45 },
+    { studentIdx: 3, topicId: topicSubBorrow.id, pKnown: 0.53 },
+    { studentIdx: 3, topicId: topicAddCarry.id, pKnown: 0.6 },
+    { studentIdx: 4, topicId: topicSubBorrow.id, pKnown: 0.35 },
+    { studentIdx: 4, topicId: topicFracSame.id, pKnown: 0.29 },
+  ];
+
+  for (const m of masteryData) {
+    const studentId = studentIds[m.studentIdx];
+    await prisma.studentTopicMastery.upsert({
+      where: { studentId_topicId: { studentId, topicId: m.topicId } },
+      update: { pKnown: m.pKnown },
+      create: { studentId, topicId: m.topicId, pKnown: m.pKnown },
+    });
+  }
+  console.log(`✅ StudentTopicMastery records created`);
+
+  // Sample Attempts for Diego Vega (student 0)
+  const errorTagSubBorrow = await prisma.errorTag.findUnique({
+    where: { code: 'ARITH_SUB_BORROW_OMITTED_TENS_G3' },
+  });
+  const attemptDefs = [
+    {
+      id: 'seed-attempt-001',
+      studentId: studentIds[0],
+      exerciseId: 'seed-ex-sub-001',
+      isCorrect: false,
+      errorTagId: errorTagSubBorrow?.id,
+    },
+    {
+      id: 'seed-attempt-002',
+      studentId: studentIds[0],
+      exerciseId: 'seed-ex-sub-002',
+      isCorrect: false,
+      errorTagId: errorTagSubBorrow?.id,
+    },
+    {
+      id: 'seed-attempt-003',
+      studentId: studentIds[0],
+      exerciseId: 'seed-ex-sub-007',
+      isCorrect: true,
+      errorTagId: null,
+    },
+    {
+      id: 'seed-attempt-004',
+      studentId: studentIds[1],
+      exerciseId: 'seed-ex-sub-001',
+      isCorrect: true,
+      errorTagId: null,
+    },
+    {
+      id: 'seed-attempt-005',
+      studentId: studentIds[4],
+      exerciseId: 'seed-ex-sub-003',
+      isCorrect: false,
+      errorTagId: errorTagSubBorrow?.id,
+    },
+  ];
+
+  for (const def of attemptDefs) {
+    await prisma.attempt.upsert({
+      where: { id: def.id },
+      update: {},
+      create: {
+        id: def.id,
+        studentId: def.studentId,
+        exerciseId: def.exerciseId,
+        courseId: course.id,
+        isCorrect: def.isCorrect,
+        errorTagId: def.errorTagId ?? null,
+        classifierSource: 'RULE',
+        confidence: def.isCorrect ? 0.95 : 0.88,
+        inputMode: 'DIGITAL',
+        status: 'CLASSIFIED',
+      },
+    });
+  }
+  console.log(`✅ ${attemptDefs.length} sample Attempts created`);
+
+  // TeacherAlerts
+  const alertDefs = [
+    {
+      id: 'seed-alert-001',
+      teacherId: teacher.id,
+      courseId: course.id,
+      topicId: topicSubBorrow.id,
+      studentId: studentIds[0],
+      alertType: 'AT_RISK_STUDENT',
+      severity: 'HIGH',
+      payload: {
+        message: 'Diego Vega lleva 3 errores seguidos en T-SUB-BORROW',
+      },
+    },
+    {
+      id: 'seed-alert-002',
+      teacherId: teacher.id,
+      courseId: course.id,
+      topicId: topicSubBorrow.id,
+      studentId: null,
+      alertType: 'COMMON_ERROR_IN_TOPIC',
+      severity: 'MED',
+      payload: {
+        message: 'BORROW_OMITTED_TENS detectado en 3 alumnos — patrón común',
+      },
+    },
+  ];
+
+  for (const alert of alertDefs) {
+    await prisma.teacherAlert.upsert({
+      where: { id: alert.id },
+      update: {},
+      create: {
+        id: alert.id,
+        teacherId: alert.teacherId,
+        courseId: alert.courseId,
+        topicId: alert.topicId,
+        studentId: alert.studentId ?? undefined,
+        alertType: alert.alertType,
+        severity: alert.severity,
+        payload: alert.payload,
+      },
+    });
+  }
+  console.log(`✅ ${alertDefs.length} TeacherAlerts created`);
+
+  console.log('\n🎉 Seed v8 complete!');
+  console.log(`   Teacher: teacher@innova.demo`);
+  console.log(`   Students: student1–5@innova.demo`);
+  console.log(`   Parent: parent@innova.demo (linked to Diego Vega)`);
+  console.log(`   Course: "${course.name}" (${course.id})`);
+  console.log('\n📌 Demo Supabase UID mapping:');
+  console.log(`   teacher@innova.demo → ${DEMO_SUPABASE_UIDS.teacher}`);
+  console.log(`   student1@innova.demo → ${DEMO_SUPABASE_UIDS.student1}`);
 }
 
 main()

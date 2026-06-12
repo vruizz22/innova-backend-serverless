@@ -21,6 +21,10 @@ provider:
             - {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
             - {"Fn::GetAtt": ["LlmClassifyDLQ", "Arn"]}
             - {"Fn::GetAtt": ["OcrQueue", "Arn"]}
+            - {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
+            - {"Fn::GetAtt": ["GuideIngestQueue", "Arn"]}
+            - {"Fn::GetAtt": ["SolutionGenQueue", "Arn"]}
+            - {"Fn::GetAtt": ["SubmissionGradeQueue", "Arn"]}
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -28,6 +32,8 @@ provider:
             - s3:DeleteObject
           Resource:
             - {"Fn::Sub": "arn:aws:s3:::${self:service}-${self:provider.stage}-ocr-uploads/*"}
+            - {"Fn::Sub": "arn:aws:s3:::${self:service}-${self:provider.stage}-guides/*"}
+            - {"Fn::Sub": "arn:aws:s3:::innova-submissions-${self:provider.stage}/*"}
   environment:
     NODE_ENV: ${self:provider.stage}
     DATABASE_URL: ${env:DATABASE_URL, ''}
@@ -37,12 +43,20 @@ provider:
     PUBLIC_PRACTICE_URL: ${env:PUBLIC_PRACTICE_URL, ''}
     CORS_ORIGINS: ${env:CORS_ORIGINS, ''}
 
-    COGNITO_USER_POOL_ID: ${env:COGNITO_USER_POOL_ID, ''}
-    COGNITO_CLIENT_ID: ${env:COGNITO_CLIENT_ID, ''}
-    COGNITO_REGION: ${env:COGNITO_REGION, ''}
+    SUPABASE_URL: ${env:SUPABASE_URL, ''}
+    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY, ''}
+    SUPABASE_ANON_KEY: ${env:SUPABASE_ANON_KEY, ''}
     SQS_ATTEMPT_STREAM_URL: {"Ref": "AttemptStreamQueue"}
     SQS_LLM_CLASSIFY_URL: {"Ref": "LlmClassifyQueue"}
     SQS_OCR_QUEUE_URL: {"Ref": "OcrQueue"}
+    SQS_ATTEMPT_REPROCESS_URL: {"Ref": "AttemptReprocessQueue"}
+    SQS_GUIDE_INGEST_URL: {"Ref": "GuideIngestQueue"}
+    SQS_SOLUTION_GEN_URL: {"Ref": "SolutionGenQueue"}
+    SQS_SUBMISSION_GRADE_URL: {"Ref": "SubmissionGradeQueue"}
+    S3_GUIDES_BUCKET: ${self:service}-${self:provider.stage}-guides
+    S3_SUBMISSIONS_BUCKET: innova-submissions-${self:provider.stage}
+    GUIDES_PRESIGNED_PUT_TTL: ${env:GUIDES_PRESIGNED_PUT_TTL, '600'}
+    GUIDES_PRESIGNED_GET_TTL: ${env:GUIDES_PRESIGNED_GET_TTL, '300'}
     ANTHROPIC_API_KEY: ${env:ANTHROPIC_API_KEY, ''}
     GEMINI_API_KEY: ${env:GEMINI_API_KEY, ''}
     RESEND_API_KEY: ${env:RESEND_API_KEY, ''}
@@ -125,6 +139,16 @@ functions:
     events:
       - schedule: rate(1 hour)
 
+  attemptReprocessWorker:
+    handler: src/infrastructure/workers/attempt-reprocess.worker.handler
+    timeout: 60
+    memorySize: 256
+    events:
+      - sqs:
+          arn: {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
+          batchSize: 10
+          functionResponseType: ReportBatchItemFailures
+
 resources:
   Resources:
     AttemptStreamQueue:
@@ -159,6 +183,71 @@ resources:
         MessageRetentionPeriod: 86400
         VisibilityTimeout: 60
 
+    AttemptReprocessQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-attempt-reprocess-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 60
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["AttemptReprocessDLQ", "Arn"]}
+          maxReceiveCount: 5
+
+    AttemptReprocessDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-attempt-reprocess-dlq
+        MessageRetentionPeriod: 1209600
+
+    # ---- v9 guides pipeline queues (consumers live in innova-ai-engine) ----
+    GuideIngestQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-guide-ingest-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 900
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["GuideIngestDLQ", "Arn"]}
+          maxReceiveCount: 3
+
+    GuideIngestDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-guide-ingest-dlq
+        MessageRetentionPeriod: 1209600
+
+    SolutionGenQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-solution-generation-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 900
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["SolutionGenDLQ", "Arn"]}
+          maxReceiveCount: 3
+
+    SolutionGenDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-solution-generation-dlq
+        MessageRetentionPeriod: 1209600
+
+    SubmissionGradeQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-submission-grade-queue
+        MessageRetentionPeriod: 86400
+        VisibilityTimeout: 180
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["SubmissionGradeDLQ", "Arn"]}
+          maxReceiveCount: 3
+
+    SubmissionGradeDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-submission-grade-dlq
+        MessageRetentionPeriod: 1209600
+
     OcrUploadsBucket:
       Type: AWS::S3::Bucket
       Properties:
@@ -169,11 +258,65 @@ resources:
               Status: Enabled
               ExpirationInDays: 30
 
+    # ---- v9 guides storage (ADR-123) ----
+    GuidesBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-${self:provider.stage}-guides
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods: [PUT, GET]
+              AllowedOrigins: ['*']
+              AllowedHeaders: ['*']
+              MaxAge: 3000
+        LifecycleConfiguration:
+          Rules:
+            - Id: PurgeUploadsAfter1Year
+              Status: Enabled
+              Prefix: guides/uploads/
+              ExpirationInDays: 365
+
+    SubmissionsBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: innova-submissions-${self:provider.stage}
+        CorsConfiguration:
+          CorsRules:
+            - AllowedMethods: [PUT, GET]
+              AllowedOrigins: ['*']
+              AllowedHeaders: ['*']
+              MaxAge: 3000
+        LifecycleConfiguration:
+          Rules:
+            - Id: PurgePhotosAfter30Days
+              Status: Enabled
+              ExpirationInDays: 30
+
   Outputs:
     LlmClassifyQueueArn:
       Value: {"Fn::GetAtt": ["LlmClassifyQueue", "Arn"]}
       Export:
         Name: innova-${self:provider.stage}-LlmClassifyQueueArn
+
+    GuideIngestQueueArn:
+      Value: {"Fn::GetAtt": ["GuideIngestQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-GuideIngestQueueArn
+
+    SolutionGenQueueArn:
+      Value: {"Fn::GetAtt": ["SolutionGenQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-SolutionGenQueueArn
+
+    SubmissionGradeQueueArn:
+      Value: {"Fn::GetAtt": ["SubmissionGradeQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-SubmissionGradeQueueArn
+
+    AttemptReprocessQueueArn:
+      Value: {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-AttemptReprocessQueueArn
 
 plugins:
   - serverless-esbuild

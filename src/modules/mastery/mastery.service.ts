@@ -3,47 +3,38 @@ import { PrismaService } from '@infrastructure/database/prisma.service';
 
 export interface MasteryState {
   studentId: string;
-  skillKey: string;
-  skillLabel?: string;
+  topicCode: string;
+  topicName?: string;
   pKnown: number;
 }
 
 export interface AttemptHistoryView {
   id: string;
-  itemContent: { problem: string; canonicalSolution: string };
-  finalAnswer: string;
+  exercisePrompt: string;
   isCorrect: boolean;
-  errorType: string | null;
+  errorTagCode: string | null;
   classifierSource: string;
   confidence: number | null;
-  durationMs: number;
   createdAt: string;
 }
 
 export interface ErrorFrequencyView {
-  errorType: string;
+  errorTagCode: string;
   count: number;
   percentage: number;
 }
 
-export interface ClassroomStudentMasteryView {
+export interface CourseStudentMasteryView {
   studentId: string;
-  studentName: string;
-  skills: Array<{
-    skillKey: string;
-    skillLabel: string;
+  displayName: string;
+  topics: Array<{
+    topicCode: string;
+    topicName: string;
     pKnown: number;
     attemptsCount: number;
   }>;
   attempts: AttemptHistoryView[];
   errorFrequency: ErrorFrequencyView[];
-}
-
-function displayStudentName(email: string): string {
-  const localPart = email.split('@')[0] ?? email;
-  return localPart
-    .replace(/[._-]+/g, ' ')
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function contentString(value: unknown, key: string): string {
@@ -57,48 +48,29 @@ function contentString(value: unknown, key: string): string {
   return '';
 }
 
-function finalExpression(rawSteps: unknown): string {
-  if (!Array.isArray(rawSteps)) return '';
-  const finalStep = [...rawSteps]
-    .reverse()
-    .find(
-      (step) =>
-        step &&
-        typeof step === 'object' &&
-        (step as { isFinal?: unknown }).isFinal === true,
-    );
-  const step = finalStep ?? rawSteps.at(-1);
-  if (!step || typeof step !== 'object') return '';
-  const expression = (step as { expression?: unknown }).expression;
-  return typeof expression === 'string' ? expression : '';
-}
-
 @Injectable()
 export class MasteryService {
   constructor(private readonly prisma: PrismaService) {}
 
   async applyAttempt(
     studentId: string,
-    skillKey: string,
+    topicId: string,
     isCorrect: boolean,
   ): Promise<MasteryState> {
     await this.prisma.ensureConnected();
 
-    const skill = await this.prisma.skill.findUnique({
-      where: { key: skillKey },
-      include: { bktParams: true },
+    const topic = await this.prisma.topic.findUnique({
+      where: { id: topicId },
     });
 
-    const pL0 = skill?.bktParams?.pL0 ?? 0.3;
-    const pT = skill?.bktParams?.pT ?? 0.1;
-    const pS = skill?.bktParams?.pS ?? 0.1;
-    const pG = skill?.bktParams?.pG ?? 0.2;
+    const pL0 = topic?.bktPL0 ?? 0.3;
+    const pT = topic?.bktPTransit ?? 0.1;
+    const pS = topic?.bktPSlip ?? 0.1;
+    const pG = topic?.bktPGuess ?? 0.2;
 
-    const existing = skill
-      ? await this.prisma.studentSkillMastery.findUnique({
-          where: { studentId_skillId: { studentId, skillId: skill.id } },
-        })
-      : null;
+    const existing = await this.prisma.studentTopicMastery.findUnique({
+      where: { studentId_topicId: { studentId, topicId } },
+    });
 
     const prior = existing?.pKnown ?? pL0;
 
@@ -111,88 +83,85 @@ export class MasteryService {
       Math.max(0, posteriorGivenObs + (1 - posteriorGivenObs) * pT),
     );
 
-    if (skill) {
-      await this.prisma.studentSkillMastery.upsert({
-        where: { studentId_skillId: { studentId, skillId: skill.id } },
-        create: { studentId, skillId: skill.id, pKnown },
-        update: { pKnown },
-      });
-    }
+    await this.prisma.studentTopicMastery.upsert({
+      where: { studentId_topicId: { studentId, topicId } },
+      create: {
+        studentId,
+        topicId,
+        pKnown,
+        attemptsCount: 1,
+        lastAttemptAt: new Date(),
+      },
+      update: {
+        pKnown,
+        attemptsCount: { increment: 1 },
+        lastAttemptAt: new Date(),
+      },
+    });
 
-    return { studentId, skillKey, pKnown };
+    return { studentId, topicCode: topic?.code ?? topicId, pKnown };
   }
 
   async getStudentMastery(studentId: string): Promise<MasteryState[]> {
     await this.prisma.ensureConnected();
-    const records = await this.prisma.studentSkillMastery.findMany({
+    const records = await this.prisma.studentTopicMastery.findMany({
       where: { studentId },
-      include: { skill: true },
+      include: { topic: true },
     });
     return records.map((r) => ({
       studentId,
-      skillKey: r.skill.key,
-      skillLabel: r.skill.name,
+      topicCode: r.topic.code,
+      topicName: r.topic.name,
       pKnown: r.pKnown,
     }));
   }
 
-  async getClassroomMastery(
-    classroomId: string,
-  ): Promise<ClassroomStudentMasteryView[]> {
+  async getCourseMastery(
+    courseId: string,
+  ): Promise<CourseStudentMasteryView[]> {
     await this.prisma.ensureConnected();
 
-    const [students, skills] = await Promise.all([
-      this.prisma.student.findMany({
-        where: { classroomId },
+    const [enrollments, topics] = await Promise.all([
+      this.prisma.enrollment.findMany({
+        where: { courseId, status: 'ACTIVE' },
         include: {
-          user: { select: { email: true } },
-          mastery: { include: { skill: true } },
-          attempts: {
-            include: { item: true },
-            orderBy: { createdAt: 'desc' },
-            take: 20,
+          student: {
+            include: {
+              topicMastery: { include: { topic: true } },
+              attempts: {
+                where: { courseId },
+                include: { exercise: true, errorTag: true },
+                orderBy: { createdAt: 'desc' },
+                take: 20,
+              },
+            },
           },
         },
-        orderBy: { createdAt: 'asc' },
+        orderBy: { joinedAt: 'asc' },
       }),
-      this.prisma.skill.findMany({
-        include: { bktParams: true },
-        orderBy: { createdAt: 'asc' },
-      }),
+      this.prisma.topic.findMany({ orderBy: { unitId: 'asc' } }),
     ]);
 
-    return students.map((student) => {
-      const attemptsBySkill = new Map<string, number>();
-      for (const attempt of student.attempts) {
-        const skillId = attempt.item?.skillId;
-        if (!skillId) continue;
-        attemptsBySkill.set(skillId, (attemptsBySkill.get(skillId) ?? 0) + 1);
-      }
-
+    return enrollments.map(({ student }) => {
       const attempts = student.attempts.map((attempt) => {
-        const content = attempt.item?.content ?? null;
+        const content = attempt.exercise?.content ?? null;
         return {
           id: attempt.id,
-          itemContent: {
-            problem: contentString(content, 'prompt'),
-            canonicalSolution: String(contentString(content, 'expectedAnswer')),
-          },
-          finalAnswer: finalExpression(attempt.rawSteps),
+          exercisePrompt: contentString(content, 'prompt'),
           isCorrect: attempt.isCorrect,
-          errorType: attempt.errorType,
+          errorTagCode: attempt.errorTag?.code ?? null,
           classifierSource: attempt.classifierSource,
           confidence: attempt.confidence,
-          durationMs: 0,
           createdAt: attempt.createdAt.toISOString(),
         };
       });
 
       const errorCounts = new Map<string, number>();
       for (const attempt of student.attempts) {
-        if (!attempt.errorType || attempt.isCorrect) continue;
+        if (!attempt.errorTag || attempt.isCorrect) continue;
         errorCounts.set(
-          attempt.errorType,
-          (errorCounts.get(attempt.errorType) ?? 0) + 1,
+          attempt.errorTag.code,
+          (errorCounts.get(attempt.errorTag.code) ?? 0) + 1,
         );
       }
       const totalErrors = Array.from(errorCounts.values()).reduce(
@@ -201,24 +170,27 @@ export class MasteryService {
       );
       const errorFrequency = Array.from(errorCounts.entries())
         .sort(([, left], [, right]) => right - left)
-        .map(([errorType, count]) => ({
-          errorType,
+        .map(([errorTagCode, count]) => ({
+          errorTagCode,
           count,
           percentage: totalErrors > 0 ? count / totalErrors : 0,
         }));
 
       return {
         studentId: student.id,
-        studentName: displayStudentName(student.user.email),
-        skills: skills.map((skill) => {
-          const existing = student.mastery.find(
-            (record) => record.skillId === skill.id,
+        displayName: student.displayName,
+        topics: topics.map((topic) => {
+          const existing = student.topicMastery.find(
+            (record) => record.topicId === topic.id,
           );
+          const attemptsCount = student.attempts.filter(
+            (a) => a.exercise?.topicId === topic.id,
+          ).length;
           return {
-            skillKey: skill.key,
-            skillLabel: skill.name,
-            pKnown: existing?.pKnown ?? skill.bktParams?.pL0 ?? 0.3,
-            attemptsCount: attemptsBySkill.get(skill.id) ?? 0,
+            topicCode: topic.code,
+            topicName: topic.name,
+            pKnown: existing?.pKnown ?? topic.bktPL0,
+            attemptsCount,
           };
         }),
         attempts,
@@ -226,4 +198,105 @@ export class MasteryService {
       };
     });
   }
+
+  // Legacy compat: get mastery by old-style classroomId (now courseId)
+  async getClassroomMastery(
+    courseId: string,
+  ): Promise<CourseStudentMasteryView[]> {
+    return this.getCourseMastery(courseId);
+  }
+
+  /**
+   * Student × Unit heatmap (C12). pKnown per unit is the mean of its topics'
+   * pKnown (default bktPL0 when a student has no record yet). Topics are kept
+   * for the drill-down (Student × Topic). Read-only.
+   */
+  async getCourseHeatmap(courseId: string): Promise<CourseHeatmapView> {
+    await this.prisma.ensureConnected();
+
+    const [enrollments, topics] = await Promise.all([
+      this.prisma.enrollment.findMany({
+        where: { courseId, status: 'ACTIVE' },
+        include: { student: { include: { topicMastery: true } } },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      this.prisma.topic.findMany({
+        include: { unit: true },
+        orderBy: [{ unit: { sequence: 'asc' } }, { code: 'asc' }],
+      }),
+    ]);
+
+    // Distinct units in stable curricular order.
+    const unitMap = new Map<
+      string,
+      { id: string; code: string; name: string; sequence: number }
+    >();
+    for (const t of topics) {
+      if (!unitMap.has(t.unitId)) {
+        unitMap.set(t.unitId, {
+          id: t.unit.id,
+          code: t.unit.code,
+          name: t.unit.name,
+          sequence: t.unit.sequence,
+        });
+      }
+    }
+    const units = [...unitMap.values()].sort((a, b) => a.sequence - b.sequence);
+    const topicsByUnit = new Map<string, typeof topics>();
+    for (const t of topics) {
+      const list = topicsByUnit.get(t.unitId) ?? [];
+      list.push(t);
+      topicsByUnit.set(t.unitId, list);
+    }
+
+    const students = enrollments.map(({ student }) => {
+      const known = new Map(
+        student.topicMastery.map((r) => [r.topicId, r.pKnown]),
+      );
+      const topicCells = topics.map((t) => ({
+        topicId: t.id,
+        unitId: t.unitId,
+        topicCode: t.code,
+        topicName: t.name,
+        pKnown: known.get(t.id) ?? t.bktPL0,
+      }));
+      const unitCells = units.map((u) => {
+        const us = topicsByUnit.get(u.id) ?? [];
+        const sum = us.reduce(
+          (acc, t) => acc + (known.get(t.id) ?? t.bktPL0),
+          0,
+        );
+        return {
+          unitId: u.id,
+          pKnown: us.length > 0 ? sum / us.length : 0,
+          topicCount: us.length,
+        };
+      });
+      return {
+        studentId: student.id,
+        displayName: student.displayName,
+        units: unitCells,
+        topics: topicCells,
+      };
+    });
+
+    return { courseId, units, students };
+  }
+}
+
+export interface CourseHeatmapView {
+  courseId: string;
+  units: Array<{ id: string; code: string; name: string; sequence: number }>;
+  students: Array<{
+    studentId: string;
+    displayName: string;
+    units: Array<{ unitId: string; pKnown: number; topicCount: number }>;
+    topics: Array<{
+      topicId: string;
+      unitId: string;
+      topicCode: string;
+      topicName: string;
+      pKnown: number;
+    }>;
+  }>;
 }

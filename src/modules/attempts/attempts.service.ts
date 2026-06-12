@@ -1,5 +1,4 @@
-import { Injectable } from '@nestjs/common';
-import { ErrorType, Prisma } from '@prisma/client';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { MasteryService } from '@modules/mastery/mastery.service';
@@ -10,6 +9,7 @@ import {
 import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { RuleClassificationResult } from '@modules/attempts/rule-engine/strategy.interface';
 import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
+import { ReportAttemptErrorDto } from '@modules/attempts/dto/report-attempt-error.dto';
 
 export interface OcrExtractResult {
   rawSteps: AttemptStepDto[];
@@ -18,32 +18,17 @@ export interface OcrExtractResult {
   confidence: number;
 }
 
+export interface ReportAck {
+  attemptId: string;
+  reported: boolean;
+}
+
 export interface AttemptResponse {
   attemptId: string;
   isCorrect: boolean;
-  errorType: string;
-  classifierSource: 'RULE_ENGINE' | 'LLM';
+  errorTagCode: string;
+  classifierSource: 'RULE' | 'LLM';
   confidence: number;
-}
-
-function toPrismaErrorType(
-  errorType: RuleClassificationResult['errorType'],
-): ErrorType | null {
-  const map: Partial<Record<RuleClassificationResult['errorType'], ErrorType>> =
-    {
-      BORROW_OMITTED: ErrorType.BORROW_OMITTED,
-      BORROW_OMITTED_TENS: ErrorType.BORROW_OMITTED,
-      BORROW_OMITTED_HUNDREDS: ErrorType.BORROW_OMITTED,
-      BORROW_FROM_ZERO_ERROR: ErrorType.BORROW_FROM_ZERO_ERROR,
-      SIGN_ERROR: ErrorType.SIGN_ERROR,
-      SUBTRAHEND_MINUEND_SWAPPED: ErrorType.SUBTRAHEND_MINUEND_SWAPPED,
-      PLACE_VALUE_ERROR: ErrorType.PLACE_VALUE_ERROR,
-      BASIC_FACT_ERROR: ErrorType.BASIC_FACT_ERROR,
-      PARTIAL_BORROW_ERROR: ErrorType.PARTIAL_BORROW_ERROR,
-      DIGIT_TRANSPOSITION: ErrorType.UNCLASSIFIED,
-      UNCLASSIFIED: ErrorType.UNCLASSIFIED,
-    };
-  return map[errorType] ?? null;
 }
 
 @Injectable()
@@ -62,30 +47,70 @@ export class AttemptsService {
   ): Promise<AttemptResponse> {
     await this.prisma.ensureConnected();
 
-    const classified = this.ruleEngine.classify(dto);
-    const prismaErrorType = toPrismaErrorType(classified.errorType);
+    // Map topicCode to topic record (include subdomain for rule engine routing)
+    const topic = await this.prisma.topic.findFirst({
+      where: { code: dto.topicCode },
+      include: {
+        subdomain: { select: { code: true } },
+        domain: { select: { id: true, code: true } },
+      },
+    });
+
+    const subdomainCode = topic?.subdomain?.code
+      ? `${topic.domain?.code ?? ''}_${topic.subdomain.code}`
+      : 'UNKNOWN';
+    const classified = this.ruleEngine.classify(dto, subdomainCode);
+    const isUnclassified = classified.errorType === 'UNCLASSIFIED';
+
+    // Find matching ErrorTag
+    const errorTag = isUnclassified
+      ? await this.prisma.errorTag.findUnique({
+          where: { code: 'UNCLASSIFIED' },
+        })
+      : classified.errorType === 'CORRECT'
+        ? await this.prisma.errorTag.findUnique({ where: { code: 'CORRECT' } })
+        : await this.prisma.errorTag.findFirst({
+            where: { code: classified.errorType },
+          });
 
     const attempt = await this.prisma.attempt.create({
       data: {
         studentId: dto.studentId,
-        itemId: dto.itemId ?? null,
+        exerciseId: dto.exerciseId ?? null,
+        courseId: dto.courseId ?? null,
         isCorrect: classified.isCorrect,
-        errorType: prismaErrorType,
-        classifierSource:
-          classified.errorType === 'UNCLASSIFIED' ? 'LLM' : 'RULE_ENGINE',
+        errorTagId: errorTag?.id ?? null,
+        classifierSource: isUnclassified ? 'LLM' : 'RULE',
         confidence: classified.confidence,
-        rawSteps: JSON.parse(
-          JSON.stringify(dto.rawSteps),
-        ) as Prisma.InputJsonValue,
+        inputMode: 'DIGITAL',
+        status: isUnclassified ? 'PENDING' : 'CLASSIFIED',
+        traceId,
       },
     });
 
-    await this.masteryService.applyAttempt(
-      dto.studentId,
-      dto.skillKey,
-      classified.isCorrect,
-    );
+    // Persist steps
+    if (dto.rawSteps.length > 0) {
+      await this.prisma.attemptStep.createMany({
+        data: dto.rawSteps.map((step, idx) => ({
+          attemptId: attempt.id,
+          stepIndex: idx,
+          contentLatex: step.expression,
+          isCorrect: step.isFinal ? classified.isCorrect : null,
+        })),
+        skipDuplicates: true,
+      });
+    }
 
+    // BKT update if we have a topic
+    if (topic) {
+      await this.masteryService.applyAttempt(
+        dto.studentId,
+        topic.id,
+        classified.isCorrect,
+      );
+    }
+
+    // Telemetry FIFO
     await this.sqsAdapter.publishFifo({
       queueUrl: process.env['SQS_ATTEMPT_STREAM_URL'] ?? '',
       messageGroupId: dto.studentId,
@@ -96,26 +121,30 @@ export class AttemptsService {
       },
     });
 
-    if (classified.errorType === 'UNCLASSIFIED') {
-      const item = dto.itemId
-        ? await this.prisma.item.findUnique({ where: { id: dto.itemId } })
+    // LLM classify queue for UNCLASSIFIED
+    if (isUnclassified) {
+      const exercise = dto.exerciseId
+        ? await this.prisma.exercise.findUnique({
+            where: { id: dto.exerciseId },
+          })
         : null;
 
-      // Build problem_statement from item.content JSON or from minuend/subtrahend fields
-      const content = item?.content as
+      const content = exercise?.content as
         | Record<string, unknown>
         | null
         | undefined;
       const problemStatement =
-        typeof content?.['problemStatement'] === 'string'
-          ? content['problemStatement']
+        typeof content?.['prompt'] === 'string'
+          ? content['prompt']
           : `${dto.minuend ?? ''} - ${dto.subtrahend ?? ''} = ?`;
 
       await this.sqsAdapter.publishStandard({
         queueUrl: process.env['SQS_LLM_CLASSIFY_URL'] ?? '',
         messageBody: {
           id: attempt.id,
-          topic: dto.skillKey,
+          topic: dto.topicCode,
+          domain_id: topic?.domainId ?? null,
+          subdomain_code: topic?.subdomain?.code ?? null,
           problem_statement: problemStatement,
           canonical_solution: String(dto.expectedAnswer),
           raw_steps: dto.rawSteps,
@@ -128,9 +157,8 @@ export class AttemptsService {
     return {
       attemptId: attempt.id,
       isCorrect: classified.isCorrect,
-      errorType: classified.errorType,
-      classifierSource:
-        classified.errorType === 'UNCLASSIFIED' ? 'LLM' : 'RULE_ENGINE',
+      errorTagCode: classified.errorType,
+      classifierSource: isUnclassified ? 'LLM' : 'RULE',
       confidence: classified.confidence,
     };
   }
@@ -144,4 +172,48 @@ export class AttemptsService {
       confidence: result.confidence,
     };
   }
+
+  /**
+   * v8 C4 — records a field-reported correct error tag for an attempt without
+   * overwriting the original classification. The reporter's identity is optional
+   * (the route is auth-guarded; user linkage is a follow-up).
+   */
+  async reportError(
+    attemptId: string,
+    dto: ReportAttemptErrorDto,
+    reportedById: string | null,
+  ): Promise<ReportAck> {
+    await this.prisma.ensureConnected();
+
+    const attempt = await this.prisma.attempt.findUnique({
+      where: { id: attemptId },
+      select: { id: true },
+    });
+    if (!attempt) {
+      throw new NotFoundException(`Attempt ${attemptId} not found`);
+    }
+
+    const errorTag = await this.prisma.errorTag.findUnique({
+      where: { code: dto.errorTagCode },
+      select: { id: true },
+    });
+    if (!errorTag) {
+      throw new NotFoundException(`Error tag ${dto.errorTagCode} not found`);
+    }
+
+    await this.prisma.attemptErrorReport.create({
+      data: {
+        attemptId: attempt.id,
+        errorTagId: errorTag.id,
+        reportedById,
+        comment: dto.comment ?? null,
+        source: 'FIELD_REPORTED',
+      },
+    });
+
+    return { attemptId: attempt.id, reported: true };
+  }
 }
+
+// Re-export for use in rule engine
+export type { RuleClassificationResult };

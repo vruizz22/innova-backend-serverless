@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 
-interface FifoMessageInput {
+interface FifoMessageInput<T extends object = Record<string, unknown>> {
   queueUrl: string;
   messageGroupId: string;
-  messageBody: Record<string, unknown>;
+  messageBody: T;
 }
 
-interface StandardMessageInput {
+interface StandardMessageInput<T extends object = Record<string, unknown>> {
   queueUrl: string;
-  messageBody: Record<string, unknown>;
+  messageBody: T;
 }
 
 @Injectable()
@@ -19,7 +19,9 @@ export class SqsAdapter {
     region: process.env['AWS_REGION'] ?? 'us-east-1',
   });
 
-  async publishFifo(input: FifoMessageInput): Promise<void> {
+  async publishFifo<T extends object>(
+    input: FifoMessageInput<T>,
+  ): Promise<void> {
     if (!input.queueUrl) {
       return;
     }
@@ -41,7 +43,9 @@ export class SqsAdapter {
     }
   }
 
-  async publishStandard(input: StandardMessageInput): Promise<void> {
+  async publishStandard<T extends object>(
+    input: StandardMessageInput<T>,
+  ): Promise<void> {
     if (!input.queueUrl) {
       return;
     }

@@ -1,25 +1,15 @@
-import { CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
+import { type CreateAttemptDto } from '@modules/attempts/dto/create-attempt.dto';
 
+// errorType will be typed as ErrorTagCode (from error-tags.generated.ts) once codegen runs.
+// Until then, it's a string constrained to valid v8 naming convention codes.
 export interface RuleClassificationResult {
   isCorrect: boolean;
-  errorType:
-    | 'CORRECT'
-    | 'BORROW_OMITTED'
-    | 'BORROW_OMITTED_TENS'
-    | 'BORROW_OMITTED_HUNDREDS'
-    | 'BORROW_FROM_ZERO_ERROR'
-    | 'PARTIAL_BORROW_ERROR'
-    | 'SIGN_ERROR'
-    | 'SUBTRAHEND_MINUEND_SWAPPED'
-    | 'PLACE_VALUE_ERROR'
-    | 'BASIC_FACT_ERROR'
-    | 'DIGIT_TRANSPOSITION'
-    | 'UNCLASSIFIED';
+  errorType: string;
   confidence: number;
   evidence?: string[];
 }
 
 export interface RuleEngineStrategy {
-  supports(skillKey: string): boolean;
+  readonly subdomainCode: string;
   classify(payload: CreateAttemptDto): RuleClassificationResult;
 }
