@@ -226,7 +226,12 @@ export class AuthService {
     // Parent.id), which is what domain endpoints (e.g. /assignments/student/:id)
     // expect — User.id alone is not enough for the frontend to call them.
     const profileId = await this.findProfileId(user.prismaUserId, user.role);
-    return { id: user.prismaUserId, email: user.email, role: user.role, profileId };
+    return {
+      id: user.prismaUserId,
+      email: user.email,
+      role: user.role,
+      profileId,
+    };
   }
 
   logout(_user: SupabaseUser): { message: string } {
