@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
 /** COPPA: parents see qualitative bands, never raw p_known numbers. */
@@ -18,7 +22,12 @@ export interface ParentChild {
 
 export interface ParentChildSummary {
   student: { id: string; displayName: string };
-  units: Array<{ unitId: string; code: string; name: string; band: MasteryBand }>;
+  units: Array<{
+    unitId: string;
+    code: string;
+    name: string;
+    band: MasteryBand;
+  }>;
   recentGuides: Array<{
     id: string;
     title: string;
@@ -27,7 +36,12 @@ export interface ParentChildSummary {
     gradedQuestions: number;
     totalQuestions: number;
   }>;
-  alerts: Array<{ id: string; severity: string; alertType: string; createdAt: string }>;
+  alerts: Array<{
+    id: string;
+    severity: string;
+    alertType: string;
+    createdAt: string;
+  }>;
 }
 
 @Injectable()
@@ -60,11 +74,15 @@ export class ParentService {
   }
 
   /** Asserts the (parent, student) link exists and is confirmed. */
-  private async assertLinked(parentId: string, studentId: string): Promise<void> {
+  private async assertLinked(
+    parentId: string,
+    studentId: string,
+  ): Promise<void> {
     const link = await this.prisma.parentLink.findFirst({
       where: { parentId, studentId, confirmedAt: { not: null } },
     });
-    if (!link) throw new ForbiddenException('This child is not linked to your account');
+    if (!link)
+      throw new ForbiddenException('This child is not linked to your account');
   }
 
   async getChildSummary(
@@ -146,7 +164,9 @@ export class ParentService {
 
     const recentGuides = guides.map((g) => {
       const totalQuestions = g.questions.length;
-      const gradedQuestions = g.questions.filter((q) => q.submissions.length > 0).length;
+      const gradedQuestions = g.questions.filter(
+        (q) => q.submissions.length > 0,
+      ).length;
       return {
         id: g.id,
         title: g.title,

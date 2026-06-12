@@ -1,5 +1,10 @@
 import { Controller, Get, Param, Request } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+} from '@nestjs/swagger';
 import { ParentService } from '@modules/parent/parent.service';
 import { Roles } from '@modules/auth/roles.decorator';
 import { Role } from '@modules/auth/roles.enum';
@@ -22,10 +27,14 @@ export class ParentController {
 
   @Get('children/:studentId')
   @ApiOperation({
-    summary: 'Child summary: mastery bands + recent guides + soft alerts (C12, COPPA-safe)',
+    summary:
+      'Child summary: mastery bands + recent guides + soft alerts (C12, COPPA-safe)',
   })
   @ApiParam({ name: 'studentId' })
-  childSummary(@Request() req: AuthRequest, @Param('studentId') studentId: string) {
+  childSummary(
+    @Request() req: AuthRequest,
+    @Param('studentId') studentId: string,
+  ) {
     return this.service.getChildSummary(req.user.prismaUserId, studentId);
   }
 }
