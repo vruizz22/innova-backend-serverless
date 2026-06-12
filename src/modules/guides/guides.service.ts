@@ -559,7 +559,9 @@ export class GuidesService {
     >();
     for (const c of cells) {
       if (c.isCorrect === true || c.errorTagCode === null) continue;
-      const byTag = perQuestion.get(c.questionId) ?? new Map();
+      const byTag =
+        perQuestion.get(c.questionId) ??
+        new Map<string, { name: string | null; count: number }>();
       const entry = byTag.get(c.errorTagCode) ?? {
         name: c.errorTagName,
         count: 0,
