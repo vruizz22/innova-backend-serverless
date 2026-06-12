@@ -688,9 +688,7 @@ const DOMAIN_MAP: Partial<Record<ErrorTagCode, string>> = {
   [ErrorTagCode.DATA_TABLE_DOUBLE_ENTRY_MISREAD_G4]: 'DATA',
 };
 
-const DEPRECATED_SET = new Set<ErrorTagCode>([
-
-]);
+const DEPRECATED_SET = new Set<ErrorTagCode>([]);
 
 export function getDomain(tag: ErrorTagCode): string | undefined {
   return DOMAIN_MAP[tag];
@@ -700,4 +698,6 @@ export function isDeprecated(tag: ErrorTagCode): boolean {
   return DEPRECATED_SET.has(tag);
 }
 
-export const ALL_ERROR_TAG_CODES = Object.values(ErrorTagCode) as ErrorTagCode[];
+export const ALL_ERROR_TAG_CODES = Object.values(
+  ErrorTagCode,
+) as ErrorTagCode[];
