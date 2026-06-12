@@ -189,7 +189,11 @@ describe('AttemptsService', () => {
     function buildService(prisma: PrismaService): AttemptsService {
       return new AttemptsService(
         prisma,
-        buildMockRuleEngine({ isCorrect: true, errorType: 'CORRECT', confidence: 1 }),
+        buildMockRuleEngine({
+          isCorrect: true,
+          errorType: 'CORRECT',
+          confidence: 1,
+        }),
         buildMockMastery(),
         buildMockSqs(),
         buildMockOcr(),

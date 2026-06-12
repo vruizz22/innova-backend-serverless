@@ -72,7 +72,8 @@ export class AttemptsController {
 
   @Post(':id/report')
   @ApiOperation({
-    summary: 'Report the correct error tag for an attempt (v8 C4 field feedback)',
+    summary:
+      'Report the correct error tag for an attempt (v8 C4 field feedback)',
   })
   @ApiParam({ name: 'id', description: 'Attempt id' })
   @ApiBody({ type: ReportAttemptErrorDto })

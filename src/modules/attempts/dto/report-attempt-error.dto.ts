@@ -6,11 +6,16 @@ import { IsOptional, IsString, MaxLength } from 'class-validator';
  * with the classifier picks the correct error tag from the catalog.
  */
 export class ReportAttemptErrorDto {
-  @ApiProperty({ description: 'Error tag code from the catalog (e.g. SUB_BORROW_NO_REGROUP)' })
+  @ApiProperty({
+    description: 'Error tag code from the catalog (e.g. SUB_BORROW_NO_REGROUP)',
+  })
   @IsString()
   errorTagCode!: string;
 
-  @ApiProperty({ required: false, description: 'Optional free-text note from the reporter' })
+  @ApiProperty({
+    required: false,
+    description: 'Optional free-text note from the reporter',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(500)
