@@ -6,21 +6,60 @@ on:
       - main
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test-and-build:
     name: Test and Build
     runs-on: ubuntu-latest
+
+    # Self-contained DB services so `pnpm test` runs in the SAME conditions as
+    # ci.yml (the previous failure was tests running with no Postgres/Mongo and
+    # empty Supabase secrets — an environment bug, not a code bug).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: innova
+          POSTGRES_PASSWORD: innova
+          POSTGRES_DB: innova_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+
+    env:
+      DATABASE_URL: postgresql://innova:innova@localhost:5432/innova_test
+      MONGODB_URI: mongodb://localhost:27017/innova_test
+      SUPABASE_URL: https://test-project.supabase.co
+      SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.test-key
+      SUPABASE_ANON_KEY: test-anon-key
+      SQS_ATTEMPT_STREAM_URL: https://sqs.us-east-1.amazonaws.com/000000000000/attempt-stream.fifo
+      SQS_LLM_CLASSIFY_URL: https://sqs.us-east-1.amazonaws.com/000000000000/llm-classify-queue
+      SQS_OCR_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/000000000000/ocr-queue
+      AWS_REGION: us-east-1
+      LOG_LEVEL: warning
+
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: "pnpm"
@@ -34,20 +73,17 @@ jobs:
       - name: Run Linter
         run: pnpm exec eslint src/ --max-warnings=0
 
+      - name: Wait for DB services to become ready
+        run: sleep 15
+
+      - name: Run Prisma migrations (retry)
+        run: |
+          for i in 1 2 3 4 5; do
+            pnpm prisma migrate deploy && break || echo "migrate attempt $i failed, retrying..." && sleep 5
+          done
+
       - name: Run Tests
         run: pnpm test
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          PUBLIC_APP_URL: ${{ secrets.PUBLIC_APP_URL }}
-          PUBLIC_API_URL: ${{ secrets.PUBLIC_API_URL }}
-          PUBLIC_PRACTICE_URL: ${{ secrets.PUBLIC_PRACTICE_URL }}
-          CORS_ORIGINS: ${{ secrets.CORS_ORIGINS }}
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
 
       - name: Build Application
         run: pnpm build
@@ -58,15 +94,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v4
         with:
           version: 9
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "24"
           cache: "pnpm"
