@@ -7,23 +7,16 @@ import {
   PrismaClient,
 } from '@prisma/client';
 
+// Single source of truth shared with the private Supabase Auth provisioner
+// (`scripts/seed-supabase-auth.ts`) so `users.supabase_uid` matches Auth `id`.
+import { DEMO_SUPABASE_UIDS } from './demo-identities';
+
 const adapter = new PrismaPg({
   connectionString: process.env['DATABASE_URL']!,
 });
 const prisma = new PrismaClient({ adapter });
 
 const DEMO_PASSWORD_HASH = 'demo_hash_not_for_prod'; // dev only — real hash not needed for seed
-
-// Demo Supabase UUIDs (deterministic for dev/testing)
-const DEMO_SUPABASE_UIDS = {
-  teacher: '00000000-0000-0000-0000-000000000001',
-  parent: '00000000-0000-0000-0000-000000000021',
-  student1: '00000000-0000-0000-0000-000000000011',
-  student2: '00000000-0000-0000-0000-000000000012',
-  student3: '00000000-0000-0000-0000-000000000013',
-  student4: '00000000-0000-0000-0000-000000000014',
-  student5: '00000000-0000-0000-0000-000000000015',
-};
 
 async function main() {
   console.log('🌱 Starting seed v7...');
