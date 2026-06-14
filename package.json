@@ -22,7 +22,9 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "import:catalog": "ts-node -r tsconfig-paths/register scripts/import-error-catalog.ts",
-    "codegen:error-tags": "ts-node -r tsconfig-paths/register scripts/codegen-error-tags.ts"
+    "codegen:error-tags": "ts-node -r tsconfig-paths/register scripts/codegen-error-tags.ts",
+    "seed:auth": "ts-node -r tsconfig-paths/register scripts/seed-supabase-auth.ts",
+    "seed:prod": "ALLOW_SEED=1 pnpm seed:auth && prisma db seed"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1067.0",
