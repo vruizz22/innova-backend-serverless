@@ -13,6 +13,7 @@ export interface AttemptHistoryView {
   exercisePrompt: string;
   isCorrect: boolean;
   errorTagCode: string | null;
+  errorTagName: string | null;
   classifierSource: string;
   confidence: number | null;
   createdAt: string;
@@ -20,6 +21,7 @@ export interface AttemptHistoryView {
 
 export interface ErrorFrequencyView {
   errorTagCode: string;
+  errorTagName: string | null;
   count: number;
   percentage: number;
 }
@@ -150,30 +152,39 @@ export class MasteryService {
           exercisePrompt: contentString(content, 'prompt'),
           isCorrect: attempt.isCorrect,
           errorTagCode: attempt.errorTag?.code ?? null,
+          // `name` may be "" (Prisma @default) for freshly imported tags →
+          // `|| null` so the FE degrades to its local humanizer, never "".
+          errorTagName: attempt.errorTag?.name || null,
           classifierSource: attempt.classifierSource,
           confidence: attempt.confidence,
           createdAt: attempt.createdAt.toISOString(),
         };
       });
 
-      const errorCounts = new Map<string, number>();
+      const errorCounts = new Map<
+        string,
+        { name: string | null; count: number }
+      >();
       for (const attempt of student.attempts) {
         if (!attempt.errorTag || attempt.isCorrect) continue;
-        errorCounts.set(
-          attempt.errorTag.code,
-          (errorCounts.get(attempt.errorTag.code) ?? 0) + 1,
-        );
+        const entry = errorCounts.get(attempt.errorTag.code) ?? {
+          name: attempt.errorTag.name || null,
+          count: 0,
+        };
+        entry.count += 1;
+        errorCounts.set(attempt.errorTag.code, entry);
       }
       const totalErrors = Array.from(errorCounts.values()).reduce(
-        (sum, count) => sum + count,
+        (sum, entry) => sum + entry.count,
         0,
       );
       const errorFrequency = Array.from(errorCounts.entries())
-        .sort(([, left], [, right]) => right - left)
-        .map(([errorTagCode, count]) => ({
+        .sort(([, left], [, right]) => right.count - left.count)
+        .map(([errorTagCode, entry]) => ({
           errorTagCode,
-          count,
-          percentage: totalErrors > 0 ? count / totalErrors : 0,
+          errorTagName: entry.name,
+          count: entry.count,
+          percentage: totalErrors > 0 ? entry.count / totalErrors : 0,
         }));
 
       return {
