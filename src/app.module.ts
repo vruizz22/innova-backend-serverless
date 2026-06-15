@@ -15,6 +15,7 @@ import { ClassroomsModule } from '@modules/classrooms/classrooms.module';
 import { GuidesModule } from '@modules/guides/guides.module';
 import { GuideSubmissionsModule } from '@modules/guide-submissions/guide-submissions.module';
 import { ParentModule } from '@modules/parent/parent.module';
+import { AdminModule } from '@modules/admin/admin.module';
 import { TelemetryModule } from '@infrastructure/telemetry.module';
 import { TraceIdMiddleware } from '@shared/http/trace-id.middleware';
 
@@ -37,6 +38,7 @@ import { TraceIdMiddleware } from '@shared/http/trace-id.middleware';
     GuidesModule,
     GuideSubmissionsModule,
     ParentModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
