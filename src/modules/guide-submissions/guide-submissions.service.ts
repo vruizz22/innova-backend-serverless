@@ -309,6 +309,9 @@ export class GuideSubmissionsService {
           score: latest?.score ?? null,
           isCorrect: latest?.isCorrect ?? null,
           errorTagCode: latest?.attempt?.errorTag?.code ?? null,
+          // `|| null`: ErrorTag.name has a "" Prisma default, so a freshly
+          // imported tag degrades to the FE humanizer instead of rendering "".
+          errorTagName: latest?.attempt?.errorTag?.name || null,
           // Solution only after grading and only if the teacher opted in.
           solution:
             guide.showSolutionAfterGrade && graded
