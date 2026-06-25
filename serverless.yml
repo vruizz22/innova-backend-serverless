@@ -25,6 +25,7 @@ provider:
             - {"Fn::GetAtt": ["GuideIngestQueue", "Arn"]}
             - {"Fn::GetAtt": ["SolutionGenQueue", "Arn"]}
             - {"Fn::GetAtt": ["SubmissionGradeQueue", "Arn"]}
+            - {"Fn::GetAtt": ["ExerciseGenerateQueue", "Arn"]}
         - Effect: Allow
           Action:
             - s3:PutObject
@@ -53,6 +54,8 @@ provider:
     SQS_GUIDE_INGEST_URL: {"Ref": "GuideIngestQueue"}
     SQS_SOLUTION_GEN_URL: {"Ref": "SolutionGenQueue"}
     SQS_SUBMISSION_GRADE_URL: {"Ref": "SubmissionGradeQueue"}
+    # backend → ai-engine: on-demand exercise generation (consumer in innova-ai-engine)
+    EXERCISE_GENERATE_QUEUE_URL: {"Ref": "ExerciseGenerateQueue"}
     S3_GUIDES_BUCKET: ${self:service}-${self:provider.stage}-guides
     S3_SUBMISSIONS_BUCKET: innova-submissions-${self:provider.stage}
     GUIDES_PRESIGNED_PUT_TTL: ${env:GUIDES_PRESIGNED_PUT_TTL, '600'}
@@ -251,6 +254,24 @@ resources:
         QueueName: ${self:service}-${self:provider.stage}-submission-grade-dlq
         MessageRetentionPeriod: 1209600
 
+    # ---- on-demand exercise generation (consumer lives in innova-ai-engine) ----
+    ExerciseGenerateQueue:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-exercise-generate-queue
+        MessageRetentionPeriod: 86400
+        # Must exceed the ai-engine exerciseGenerator Lambda timeout (300s).
+        VisibilityTimeout: 360
+        RedrivePolicy:
+          deadLetterTargetArn: {"Fn::GetAtt": ["ExerciseGenerateDLQ", "Arn"]}
+          maxReceiveCount: 3
+
+    ExerciseGenerateDLQ:
+      Type: AWS::SQS::Queue
+      Properties:
+        QueueName: ${self:service}-${self:provider.stage}-exercise-generate-dlq
+        MessageRetentionPeriod: 1209600
+
     OcrUploadsBucket:
       Type: AWS::S3::Bucket
       Properties:
@@ -320,6 +341,11 @@ resources:
       Value: {"Fn::GetAtt": ["AttemptReprocessQueue", "Arn"]}
       Export:
         Name: innova-${self:provider.stage}-AttemptReprocessQueueArn
+
+    ExerciseGenerateQueueArn:
+      Value: {"Fn::GetAtt": ["ExerciseGenerateQueue", "Arn"]}
+      Export:
+        Name: innova-${self:provider.stage}-ExerciseGenerateQueueArn
 
 plugins:
   - serverless-esbuild
