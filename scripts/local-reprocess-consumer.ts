@@ -2,7 +2,7 @@
  * Local consumer for `attempt-reprocess-queue` (dev only).
  *
  * In prod, an SQS event-source-mapping invokes the Lambda `handler` exported by
- * `attempt-reprocess.worker.ts` whenever the ai-engine `submission_grader`
+ * `attempt-reprocess.ts` whenever the ai-engine `submission_grader`
  * publishes a message. Locally there is no mapping: `pnpm start:dev` only serves
  * the HTTP API, so the queue is never drained and the v9 pipeline stalls right
  * after grading (the photo is read, but no Attempt is created, no rule engine,
@@ -29,7 +29,7 @@ import type { SQSEvent, SQSRecord } from 'aws-lambda';
 // would re-enter AttemptsModule while the worker is still mid-evaluation, leaving
 // `AttemptReprocessWorker` undefined in its providers array → CircularDependencyException.
 import '@/app.module';
-import { handler } from '@infrastructure/workers/attempt-reprocess.worker';
+import { handler } from '@infrastructure/workers/attempt-reprocess';
 
 const QUEUE_NAME = 'attempt-reprocess-queue';
 const endpoint = process.env['AWS_ENDPOINT_URL'];
