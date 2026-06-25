@@ -25,7 +25,7 @@
     "codegen:error-tags": "ts-node -r tsconfig-paths/register scripts/codegen-error-tags.ts",
     "seed:auth": "ts-node -r tsconfig-paths/register scripts/seed-supabase-auth.ts",
     "seed:prod": "ALLOW_SEED=1 pnpm seed:auth && prisma db seed",
-    "seed:full": "prisma db seed && pnpm import:catalog --input=../innova-ai-engine/out/error_catalog.jsonl",
+    "seed:full": "prisma db seed && pnpm import:catalog --input=../innova-ai-engine/out/error_catalog.jsonl --activate",
     "consume:reprocess": "ts-node --transpile-only -r tsconfig-paths/register scripts/local-reprocess-consumer.ts"
   },
   "dependencies": {
