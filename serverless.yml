@@ -108,7 +108,7 @@ functions:
           path: '{proxy+}'
 
   telemetryWorker:
-    handler: src/infrastructure/workers/telemetry-persister.handler.handler
+    handler: src/infrastructure/workers/telemetry-persister.handler
     timeout: 60
     memorySize: 256
     events:
@@ -118,7 +118,7 @@ functions:
           functionResponseType: ReportBatchItemFailures
 
   llmClassifierWorker:
-    handler: src/infrastructure/workers/llm-classifier.handler.handler
+    handler: src/infrastructure/workers/llm-classifier.handler
     timeout: 120
     memorySize: 512
     events:
@@ -129,7 +129,7 @@ functions:
           functionResponseType: ReportBatchItemFailures
 
   ocrWorker:
-    handler: src/infrastructure/workers/ocr-worker.handler.handler
+    handler: src/infrastructure/workers/ocr-worker.handler
     timeout: 60
     memorySize: 512
     events:
@@ -139,14 +139,14 @@ functions:
           existing: true
 
   alertGenerator:
-    handler: src/infrastructure/workers/alert-generator.handler.handler
+    handler: src/infrastructure/workers/alert-generator.handler
     timeout: 60
     memorySize: 256
     events:
       - schedule: rate(1 hour)
 
   attemptReprocessWorker:
-    handler: src/infrastructure/workers/attempt-reprocess.worker.handler
+    handler: src/infrastructure/workers/attempt-reprocess.handler
     timeout: 60
     memorySize: 256
     events:
