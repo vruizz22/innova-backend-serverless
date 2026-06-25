@@ -24,11 +24,14 @@
     "import:catalog": "ts-node -r tsconfig-paths/register scripts/import-error-catalog.ts",
     "codegen:error-tags": "ts-node -r tsconfig-paths/register scripts/codegen-error-tags.ts",
     "seed:auth": "ts-node -r tsconfig-paths/register scripts/seed-supabase-auth.ts",
-    "seed:prod": "ALLOW_SEED=1 pnpm seed:auth && prisma db seed"
+    "seed:prod": "ALLOW_SEED=1 pnpm seed:auth && prisma db seed",
+    "seed:full": "prisma db seed && pnpm import:catalog --input=../innova-ai-engine/out/error_catalog.jsonl",
+    "consume:reprocess": "ts-node --transpile-only -r tsconfig-paths/register scripts/local-reprocess-consumer.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1067.0",
     "@aws-sdk/client-sqs": "^3.1032.0",
+    "@aws-sdk/client-ssm": "^3.1073.0",
     "@aws-sdk/s3-request-presigner": "^3.1067.0",
     "@google/generative-ai": "^0.24.1",
     "@nestjs/common": "^11.0.1",

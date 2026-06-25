@@ -11,6 +11,10 @@ module.exports = {
     '!lambda.ts',
     '!**/*.module.ts',
     '!**/infrastructure/workers/**',
+    // Generated code (rule-engine error-tag catalog) — not hand-written, not unit-testable.
+    '!**/*.generated.ts',
+    // Mongoose schemas — declarative document definitions, no branching logic.
+    '!**/infrastructure/database/schemas/**',
   ],
   coverageDirectory: '../coverage',
   coverageThreshold: {
