@@ -9,7 +9,7 @@
  * at runtime via the `SEED_DEMO_PASSWORD` secret (private to the operator).
  */
 
-export type DemoRole = 'teacher' | 'student' | 'parent';
+export type DemoRole = 'admin' | 'teacher' | 'student' | 'parent';
 
 export interface DemoIdentity {
   readonly email: string;
@@ -20,6 +20,7 @@ export interface DemoIdentity {
 
 /** Deterministic Supabase UIDs (stable across reseeds). */
 export const DEMO_SUPABASE_UIDS = {
+  admin: '00000000-0000-0000-0000-000000000099',
   teacher: '00000000-0000-0000-0000-000000000001',
   parent: '00000000-0000-0000-0000-000000000021',
   student1: '00000000-0000-0000-0000-000000000011',
@@ -31,6 +32,12 @@ export const DEMO_SUPABASE_UIDS = {
 
 /** Flat list consumed by the Supabase Auth provisioner. */
 export const DEMO_IDENTITIES: readonly DemoIdentity[] = [
+  {
+    email: 'admin@innova.demo',
+    supabaseUid: DEMO_SUPABASE_UIDS.admin,
+    role: 'admin',
+    displayName: 'Admin Demo',
+  },
   {
     email: 'teacher@innova.demo',
     supabaseUid: DEMO_SUPABASE_UIDS.teacher,
