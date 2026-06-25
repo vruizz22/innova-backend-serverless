@@ -11,6 +11,13 @@ import { S3Adapter } from '@adapters/s3.adapter';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { SubmissionGradeMessage } from '@shared/sqs/guide-messages';
 import { CreateSubmissionDto } from '@modules/guide-submissions/dto/create-submission.dto';
+import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
+import { SubmissionStatus } from '@prisma/client';
+import type {
+  ScanPageUploadUrlResponse,
+  ProcessScanPageResponse,
+  ScanPageSubmissionResult,
+} from '@modules/guide-submissions/dto/scan-page.dto';
 
 export interface CreateSubmissionResult {
   submissionId: string;
@@ -26,6 +33,7 @@ export class GuideSubmissionsService {
     private readonly prisma: PrismaService,
     private readonly s3: S3Adapter,
     private readonly sqs: SqsAdapter,
+    private readonly ocr: MathOCROrchestrator,
   ) {}
 
   /** PUBLISHED guides of the student's active courses + per-guide progress. */
@@ -144,15 +152,27 @@ export class GuideSubmissionsService {
     }
 
     // Enforce re-submission cap (1 original + maxResubmissions retries).
-    const existingCount = await this.prisma.guideSubmission.count({
-      where: { guideQuestionId: questionId, studentId: student.id },
-    });
-    if (existingCount > guide.maxResubmissions) {
+    // FAILED submissions caused by system errors do not count against the cap,
+    // but they DO occupy an attempt_number slot → use MAX+1 to avoid unique conflicts.
+    const [nonFailedCount, maxAttempt] = await Promise.all([
+      this.prisma.guideSubmission.count({
+        where: {
+          guideQuestionId: questionId,
+          studentId: student.id,
+          status: { not: SubmissionStatus.FAILED },
+        },
+      }),
+      this.prisma.guideSubmission.aggregate({
+        where: { guideQuestionId: questionId, studentId: student.id },
+        _max: { attemptNumber: true },
+      }),
+    ]);
+    if (nonFailedCount > guide.maxResubmissions) {
       throw new BadRequestException(
         `Re-submission limit reached (${guide.maxResubmissions})`,
       );
     }
-    const attemptNumber = existingCount + 1;
+    const attemptNumber = (maxAttempt._max.attemptNumber ?? 0) + 1;
 
     const submissionId = randomUUID();
     const photoKeys = Array.from(
@@ -320,6 +340,153 @@ export class GuideSubmissionsService {
         };
       }),
     };
+  }
+
+  // -------------------------------------------------------------------
+  // Scan-page — one photo → auto-split → N submissions (endpoint #7)
+  // -------------------------------------------------------------------
+
+  /** Returns a short-lived presigned PUT URL so the client can upload a page photo. */
+  async getScanPageUploadUrl(
+    studentUserId: string,
+    guideId: string,
+  ): Promise<ScanPageUploadUrlResponse> {
+    await this.prisma.ensureConnected();
+    const student = await this.resolveStudent(studentUserId);
+    await this.loadPublishedGuideForStudent(student.id, guideId);
+
+    const bucket = this.submissionsBucket();
+    const photoKey = `guide-scans/${guideId}/${student.id}/${randomUUID()}.jpg`;
+    const ttl = Number(process.env['GUIDES_PRESIGNED_PUT_TTL'] ?? 600);
+    const presignedUrl = await this.s3.createPresignedPutUrl({
+      bucket,
+      key: photoKey,
+      ttlSeconds: ttl,
+      contentType: 'image/jpeg',
+    });
+
+    return { photoKey, presignedUrl };
+  }
+
+  /**
+   * Downloads the page photo, runs multi-exercise OCR, then positionally aligns
+   * each extracted exercise to a guide question (exercise[0] → question[seq=1],
+   * exercise[1] → question[seq=2], …). Creates one GuideSubmission per matched
+   * pair and enqueues it for grading. Questions beyond the detected exercise count
+   * are not submitted; excess exercises are silently ignored.
+   */
+  async processScanPage(
+    studentUserId: string,
+    guideId: string,
+    photoKey: string,
+  ): Promise<ProcessScanPageResponse> {
+    await this.prisma.ensureConnected();
+    const student = await this.resolveStudent(studentUserId);
+    const guide = await this.loadPublishedGuideForStudent(student.id, guideId);
+
+    const bucket = this.submissionsBucket();
+    const photoExists = await this.s3.objectExists(bucket, photoKey);
+    if (!photoExists) {
+      throw new BadRequestException(
+        'Photo not found in storage — upload it first',
+      );
+    }
+
+    const questions = await this.prisma.guideQuestion.findMany({
+      where: { guideId, status: 'APPROVED' },
+      orderBy: { sequence: 'asc' },
+      select: { id: true, sequence: true },
+    });
+    if (questions.length === 0) {
+      throw new NotFoundException('No approved questions found for this guide');
+    }
+
+    const imageBytes = await this.s3.getObjectBytes(bucket, photoKey);
+    const { exercises } = await this.ocr.extract(imageBytes);
+
+    if (exercises.length === 0) {
+      this.logger.warn(
+        `scan-page OCR returned 0 exercises for guide ${guideId} photo ${photoKey}`,
+      );
+      return { photoKey, matched: 0, submissions: [] };
+    }
+
+    const pairs = Math.min(exercises.length, questions.length);
+    const results: ScanPageSubmissionResult[] = [];
+
+    for (let i = 0; i < pairs; i++) {
+      const question = questions[i];
+
+      const [nonFailedCount, maxAttempt] = await Promise.all([
+        this.prisma.guideSubmission.count({
+          where: {
+            guideQuestionId: question.id,
+            studentId: student.id,
+            status: { not: SubmissionStatus.FAILED },
+          },
+        }),
+        this.prisma.guideSubmission.aggregate({
+          where: { guideQuestionId: question.id, studentId: student.id },
+          _max: { attemptNumber: true },
+        }),
+      ]);
+      if (nonFailedCount > guide.maxResubmissions) {
+        results.push({
+          questionId: question.id,
+          sequence: question.sequence,
+          submissionId: null,
+          skipped: true,
+          reason: 'limit_reached',
+        });
+        continue;
+      }
+
+      const attemptNumber = (maxAttempt._max.attemptNumber ?? 0) + 1;
+      const submissionId = randomUUID();
+      const solution = await this.prisma.guideSolution.findFirst({
+        where: { guideQuestionId: question.id, isCurrent: true },
+        select: { version: true },
+      });
+
+      await this.prisma.guideSubmission.create({
+        data: {
+          id: submissionId,
+          guideId,
+          guideQuestionId: question.id,
+          studentId: student.id,
+          attemptNumber,
+          status: 'UPLOADED',
+          photoKeys: [photoKey],
+          solutionVersion: solution?.version ?? null,
+        },
+      });
+
+      const gradeMessage: SubmissionGradeMessage = {
+        guide_submission_id: submissionId,
+        guide_question_id: question.id,
+        solution_version: solution?.version ?? 0,
+        photo_keys: [photoKey],
+        trace_id: randomUUID(),
+      };
+      await this.sqs.publishStandard({
+        queueUrl: process.env['SQS_SUBMISSION_GRADE_URL'] ?? '',
+        messageBody: gradeMessage,
+      });
+
+      results.push({
+        questionId: question.id,
+        sequence: question.sequence,
+        submissionId,
+        skipped: false,
+      });
+    }
+
+    const matched = results.filter((r) => !r.skipped).length;
+    this.logger.log(
+      `scan-page: guide=${guideId} student=${student.id} exercises=${exercises.length} matched=${matched}`,
+    );
+
+    return { photoKey, matched, submissions: results };
   }
 
   // -------------------------------------------------------------------
