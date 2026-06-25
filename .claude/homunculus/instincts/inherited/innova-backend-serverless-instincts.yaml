@@ -1,0 +1,607 @@
+# Instincts generated from https://github.com/vruizz22/innova-backend-serverless
+# Generated: 2026-06-25T05:04:40.647Z
+# Version: 2.0
+# NOTE: This file supplements (does not replace) any existing curated instincts.
+# High-confidence manually curated instincts should be preserved alongside these.
+
+---
+id: innova-backend-serverless-commit-conventional
+trigger: "when writing a commit message"
+confidence: 0.85
+domain: git
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Commit Conventional
+
+## Action
+
+Use conventional commit format with prefixes: feat, chore, ci, fix, refactor
+
+## Evidence
+
+- 21 commits analyzed
+- Detected conventional commit pattern
+- Examples: refactor(prisma/seed): extract demo UIDs to shared demo-identities module, ci: upgrade actions to v5 and add concurrency cancel
+
+---
+id: innova-backend-serverless-commit-length
+trigger: "when writing a commit message"
+confidence: 0.6
+domain: git
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Commit Length
+
+## Action
+
+Write moderate-length commit messages (~63 characters)
+
+## Evidence
+
+- Average commit message length: 63 chars
+- Based on 21 commits
+
+---
+id: innova-backend-serverless-naming-files
+trigger: "when creating a new file"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Naming Files
+
+## Action
+
+Use camelCase naming convention
+
+## Evidence
+
+- Analyzed file naming patterns in repository
+- Dominant pattern: camelCase
+
+---
+id: innova-backend-serverless-export-style
+trigger: "when exporting from a module"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Export Style
+
+## Action
+
+Prefer named exports
+
+## Evidence
+
+- Export pattern analysis
+- Dominant style: named
+
+---
+id: innova-backend-serverless-arch-feature-based
+trigger: "when adding a new feature"
+confidence: 0.85
+domain: architecture
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Arch Feature Based
+
+## Action
+
+Create a new folder in src/features/ with all related code colocated
+
+## Evidence
+
+- Feature-based module organization detected
+- Structure: src/features/[feature-name]/
+
+---
+id: innova-backend-serverless-test-colocate
+trigger: "when writing tests"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Test Colocate
+
+## Action
+
+Place test file next to the source file (e.g., Button.test.tsx next to Button.tsx)
+
+## Evidence
+
+- Colocated test pattern detected
+- Tests live alongside source files
+
+---
+id: innova-backend-serverless-test-framework
+trigger: "when writing tests"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Test Framework
+
+## Action
+
+Use jest as the test framework
+
+## Evidence
+
+- Test framework detected: jest
+- File pattern: *.spec.ts
+
+---
+id: innova-backend-serverless-test-naming
+trigger: "when creating a test file"
+confidence: 0.85
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Test Naming
+
+## Action
+
+Name test files using the pattern: *.spec.ts
+
+## Evidence
+
+- File pattern: *.spec.ts
+- Consistent across test files
+
+---
+id: innova-backend-serverless-test-types
+trigger: "when planning tests for a feature"
+confidence: 0.7
+domain: testing
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Test Types
+
+## Action
+
+Write unit, integration, e2e tests to match project standards
+
+## Evidence
+
+- Test types detected: unit, integration, e2e
+- Coverage config: yes
+
+---
+id: innova-backend-serverless-workflow-feature-development
+trigger: "when implementing a new feature"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Workflow Feature Development
+
+## Action
+
+Follow the feature-development workflow:
+1. Add feature implementation
+2. Add tests for feature
+3. Update documentation
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~24x per month
+- Files: scripts/*, src/modules/admin/*, src/modules/admin/dto/*
+
+---
+id: innova-backend-serverless-workflow-add-new-module-or-feature
+trigger: "when doing add new module or feature"
+confidence: 0.6
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Workflow Add New Module Or Feature
+
+## Action
+
+Follow the add-new-module-or-feature workflow:
+1. Create new controller file(s) in src/modules/[feature]/
+2. Create new service file(s) in src/modules/[feature]/
+3. Add DTOs in src/modules/[feature]/dto/
+4. Add or update module registration in src/modules/[feature]/[feature].module.ts
+5. Write corresponding *.spec.ts test files for controller/service
+6. Optionally update shared domain/types if needed
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~2x per month
+- Files: src/modules/*/*.controller.ts, src/modules/*/*.service.ts, src/modules/*/*.module.ts
+
+---
+id: innova-backend-serverless-workflow-database-schema-migration-and-seed-update
+trigger: "when doing database schema migration and seed update"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Workflow Database Schema Migration And Seed Update
+
+## Action
+
+Follow the database-schema-migration-and-seed-update workflow:
+1. Edit prisma/schema.prisma to define new/changed tables or fields
+2. Generate new migration in prisma/migrations/
+3. Update prisma/seed.ts and/or prisma/demo-identities.ts for new data
+4. Optionally update prisma.config.ts
+5. Commit all related files together
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: prisma/schema.prisma, prisma/migrations/*/migration.sql, prisma/seed.ts
+
+---
+id: innova-backend-serverless-workflow-ci-cd-workflow-update
+trigger: "when doing ci cd workflow update"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Workflow Ci Cd Workflow Update
+
+## Action
+
+Follow the ci-cd-workflow-update workflow:
+1. Edit or add .github/workflows/*.yml files
+2. Commit with 'ci:' or 'chore(ci):' prefix
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: .github/workflows/*.yml
+
+---
+id: innova-backend-serverless-workflow-add-or-update-shared-domain-types
+trigger: "when doing add or update shared domain types"
+confidence: 0.55
+domain: workflow
+source: repo-analysis
+source_repo: https://github.com/vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Workflow Add Or Update Shared Domain Types
+
+## Action
+
+Follow the add-or-update-shared-domain-types workflow:
+1. Edit or regenerate src/shared/domain/*.generated.ts
+2. Optionally update modules/services that consume these types
+
+## Evidence
+
+- Workflow detected from commit patterns
+- Frequency: ~1x per month
+- Files: src/shared/domain/*.generated.ts
+
+---
+id: innova-backend-serverless-instinct-camelcase-files
+trigger: "When creating or renaming a file in the codebase"
+confidence: 0.85
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Camelcase Files
+
+## Action
+
+Name the file using camelCase (e.g., userController.ts, errorTags.generated.ts)
+
+## Evidence
+
+- Pattern in src/modules/admin/errorTags.generated.ts
+- Naming conventions specified in analysis
+
+---
+id: innova-backend-serverless-instinct-camelcase-functions
+trigger: "When defining a function"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Camelcase Functions
+
+## Action
+
+Name the function using camelCase (e.g., getUserById, seedDemoData)
+
+## Evidence
+
+- Naming conventions specified in analysis
+- Pattern in src/modules/*/*.service.ts
+
+---
+id: innova-backend-serverless-instinct-pascalcase-classes
+trigger: "When defining a class"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Pascalcase Classes
+
+## Action
+
+Name the class using PascalCase (e.g., UserService, ErrorTagController)
+
+## Evidence
+
+- Naming conventions specified in analysis
+- Pattern in src/modules/*/*.controller.ts
+
+---
+id: innova-backend-serverless-instinct-screaming-snake-constants
+trigger: "When defining a constant"
+confidence: 0.9
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Screaming Snake Constants
+
+## Action
+
+Name the constant using SCREAMING_SNAKE_CASE (e.g., MAX_RETRY_COUNT)
+
+## Evidence
+
+- Naming conventions specified in analysis
+
+---
+id: innova-backend-serverless-instinct-mixed-imports
+trigger: "When importing modules"
+confidence: 0.7
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Mixed Imports
+
+## Action
+
+Use both relative and absolute import styles as appropriate (mixed import style)
+
+## Evidence
+
+- importStyle: mixed in analysis
+
+---
+id: innova-backend-serverless-instinct-named-exports
+trigger: "When exporting from a module"
+confidence: 0.8
+domain: code-style
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Named Exports
+
+## Action
+
+Use named exports instead of default exports
+
+## Evidence
+
+- exportStyle: named in analysis
+
+---
+id: innova-backend-serverless-instinct-jest-spec-pattern
+trigger: "When writing a test file"
+confidence: 0.9
+domain: testing
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Jest Spec Pattern
+
+## Action
+
+Name the file with a .spec.ts suffix and colocate it with the code under test
+
+## Evidence
+
+- testing.filePattern: *.spec.ts
+- testLocation: colocated
+
+---
+id: innova-backend-serverless-instinct-jest-framework
+trigger: "When writing tests"
+confidence: 0.95
+domain: testing
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Jest Framework
+
+## Action
+
+Use the Jest testing framework
+
+## Evidence
+
+- testing.framework: jest
+- jest.config.js in root
+
+---
+id: innova-backend-serverless-instinct-test-types
+trigger: "When designing tests"
+confidence: 0.8
+domain: testing
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Test Types
+
+## Action
+
+Include unit, integration, and e2e tests as appropriate for the feature
+
+## Evidence
+
+- testing.testTypes: [unit, integration, e2e]
+
+---
+id: innova-backend-serverless-instinct-conventional-commits
+trigger: "When writing a commit message"
+confidence: 0.95
+domain: git
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Conventional Commits
+
+## Action
+
+Use conventional commit prefixes: feat, fix, chore, ci, refactor, docs
+
+## Evidence
+
+- commits.type: conventional
+- commits.prefixes: [feat, fix, chore, ci, refactor, docs]
+- Examples: 'feat(scripts): add Supabase Auth demo user provisioner'
+
+---
+id: innova-backend-serverless-instinct-commit-length
+trigger: "When writing a commit message"
+confidence: 0.7
+domain: git
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Commit Length
+
+## Action
+
+Keep the commit message concise, around 63 characters on average
+
+## Evidence
+
+- commits.averageLength: 63
+
+---
+id: innova-backend-serverless-instinct-add-new-module-or-feature
+trigger: "When introducing a new business domain or major feature with full CRUD or workflow support"
+confidence: 0.95
+domain: workflow
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Add New Module Or Feature
+
+## Action
+
+Create controller, service, DTOs, module registration, and corresponding tests in src/modules/[feature]/
+
+## Evidence
+
+- Workflow: add-new-module-or-feature
+- Pattern in src/modules/*/*.controller.ts, *.service.ts, *.module.ts, dto/*.dto.ts, *.spec.ts
+
+---
+id: innova-backend-serverless-instinct-database-schema-migration-and-seed-update
+trigger: "When adding or modifying database tables/columns and updating demo/seed data"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Database Schema Migration And Seed Update
+
+## Action
+
+Edit prisma/schema.prisma, generate migration, update seed/demo files, and commit together
+
+## Evidence
+
+- Workflow: database-schema-migration-and-seed-update
+- Pattern in prisma/schema.prisma, prisma/migrations/*/migration.sql, prisma/seed.ts
+
+---
+id: innova-backend-serverless-instinct-ci-cd-workflow-update
+trigger: "When changing build/test/deploy automation or adding new CI/CD steps"
+confidence: 0.9
+domain: workflow
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Ci Cd Workflow Update
+
+## Action
+
+Edit or add .github/workflows/*.yml files and commit with 'ci:' or 'chore(ci):' prefix
+
+## Evidence
+
+- Workflow: ci-cd-workflow-update
+- Pattern in .github/workflows/*.yml
+- Commits: 'ci: upgrade actions to v5 and add concurrency cancel'
+
+---
+id: innova-backend-serverless-instinct-add-or-update-shared-domain-types
+trigger: "When introducing new domain constants or enums used by multiple features"
+confidence: 0.85
+domain: workflow
+source: repo-analysis
+source_repo: vruizz22/innova-backend-serverless
+---
+
+# Innova Backend Serverless Instinct Add Or Update Shared Domain Types
+
+## Action
+
+Edit or regenerate src/shared/domain/*.generated.ts and update consumers as needed
+
+## Evidence
+
+- Workflow: add-or-update-shared-domain-types
+- Pattern in src/shared/domain/*.generated.ts
+
