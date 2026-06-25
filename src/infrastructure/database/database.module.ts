@@ -33,6 +33,18 @@ export const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
   AWS_REGION: z.string().optional(),
+  // AWS endpoint + creds: present in local .env (LocalStack), absent in prod
+  // (task-role creds + real endpoint). MUST be declared or Zod strips them from
+  // process.env and the S3/SQS clients fall back to real AWS (see s3.adapter.ts).
+  AWS_ENDPOINT_URL: z.string().url().optional(),
+  AWS_ACCESS_KEY_ID: z.string().optional(),
+  AWS_SECRET_ACCESS_KEY: z.string().optional(),
+  SUBMISSIONS_PRESIGNED_GET_TTL: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300),
+  GEMINI_MODEL: z.string().optional(),
   LOG_LEVEL: z.string().optional(),
 });
 
@@ -41,7 +53,10 @@ export const envSchema = z.object({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      validate: (config) => envSchema.parse(config),
+      // `.passthrough()` so undeclared .env vars still reach process.env (the
+      // S3/SQS adapters read process.env directly). Without it, Zod strips any
+      // key not listed above and those clients silently fall back to real AWS.
+      validate: (config) => envSchema.passthrough().parse(config),
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
