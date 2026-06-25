@@ -10,7 +10,7 @@ import { AttemptsService } from '@modules/attempts/attempts.service';
 import { RuleEngineFactory } from '@modules/attempts/rule-engine/factory';
 import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service';
 import { MasteryModule } from '@modules/mastery/mastery.module';
-import { AttemptReprocessWorker } from '@infrastructure/workers/attempt-reprocess';
+import { AttemptReprocessWorker } from '@infrastructure/workers/attempt-reprocess.worker';
 
 // Strategies are instantiated inside RuleEngineFactory REGISTRY — not injected via DI.
 // To add a new strategy for v8, register it in factory.ts REGISTRY only.
