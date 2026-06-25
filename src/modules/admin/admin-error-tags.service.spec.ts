@@ -99,7 +99,10 @@ describe('AdminErrorTagsService', () => {
       status: 'DRAFT',
     });
 
-    const where = findMany.mock.calls[0][0].where;
+    const calls = findMany.mock.calls as Array<
+      [{ where: Record<string, unknown> }]
+    >;
+    const where = calls[0][0].where;
     expect(where.status).toBe('DRAFT');
     expect(where.domain).toEqual({ code: 'ARITH' });
     expect(where.OR).toEqual([
