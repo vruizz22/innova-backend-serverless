@@ -82,6 +82,9 @@ custom:
     platform: node
     concurrency: 4
     keepNames: true
+    # Preserve NestJS decorator metadata (design:paramtypes) that esbuild drops —
+    # without this, type-based DI resolves to undefined at runtime. See file.
+    plugins: ./esbuild-decorators.cjs
     external:
       - '@nestjs/microservices'
       - '@nestjs/websockets'
