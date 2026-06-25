@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Topic } from '@prisma/client';
+import { Prisma, Topic } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 import { CreateSkillDto } from '@modules/skills/dto/create-skill.dto';
 import { UpdateSkillDto } from '@modules/skills/dto/update-skill.dto';
@@ -31,6 +31,78 @@ export class SkillsService {
   async findAll(): Promise<Topic[]> {
     await this.prisma.ensureConnected();
     return this.prisma.topic.findMany({ orderBy: { unitId: 'asc' } });
+  }
+
+  /**
+   * The math error taxonomy (domains + their subdomains) — the classification
+   * catalog the guide wizard offers, always populated (unlike curriculum topics).
+   */
+  async getTaxonomy() {
+    await this.prisma.ensureConnected();
+    return this.prisma.domain.findMany({
+      orderBy: { code: 'asc' },
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        subdomains: {
+          orderBy: { code: 'asc' },
+          select: { id: true, code: true, name: true },
+        },
+      },
+    });
+  }
+
+  /**
+   * Search the live ACTIVE error catalog for the teacher's manual override
+   * (guide results matrix). Unlike the bundled front-end seed, this reads the
+   * backend source of truth (2.6k+ tags), so the typeahead surfaces every error
+   * the classifier can assign — just like the topic taxonomy is served live.
+   */
+  async searchErrorTags(params: {
+    q?: string;
+    domainCode?: string;
+    limit?: number;
+  }): Promise<
+    Array<{
+      code: string;
+      name: string;
+      subdomainCode: string | null;
+      domainCode: string | null;
+    }>
+  > {
+    await this.prisma.ensureConnected();
+
+    const where: Prisma.ErrorTagWhereInput = { status: 'ACTIVE' };
+    if (params.domainCode) where.domain = { code: params.domainCode };
+    const q = params.q?.trim();
+    if (q) {
+      where.OR = [
+        { code: { contains: q, mode: 'insensitive' } },
+        { name: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    const take = Math.min(Math.max(params.limit ?? 20, 1), 50);
+    const rows = await this.prisma.errorTag.findMany({
+      where,
+      select: {
+        code: true,
+        name: true,
+        subdomainCode: true,
+        domain: { select: { code: true } },
+      },
+      orderBy: { code: 'asc' },
+      take,
+    });
+
+    return rows.map((r) => ({
+      code: r.code,
+      name: r.name,
+      subdomainCode: r.subdomainCode,
+      domainCode: r.domain?.code ?? null,
+    }));
   }
 
   async findOne(id: string): Promise<Topic | null> {

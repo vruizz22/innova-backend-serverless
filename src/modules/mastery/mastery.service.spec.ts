@@ -113,3 +113,110 @@ describe('MasteryService', () => {
     expect(Array.isArray(records)).toBe(true);
   });
 });
+
+describe('MasteryService.recommendNextExercise', () => {
+  const STUDENT_ID = 'student-rec-01';
+  const COURSE_ID = 'course-rec-01';
+
+  const TOPIC = { id: 'topic-rec', code: 'ARITH_SUB', name: 'Sustracción' };
+  const EXERCISE = {
+    id: 'ex-rec-01',
+    content: { prompt: '5 - 3' },
+    irtA: 1.0,
+    irtB: 0.0,
+  };
+
+  function buildRecommendPrisma(
+    overrides: {
+      mastery?: unknown[];
+      exercises?: unknown[];
+      recentCorrect?: unknown[];
+    } = {},
+  ) {
+    return {
+      ensureConnected: jest.fn().mockResolvedValue(undefined),
+      topic: {
+        findUnique: jest.fn(),
+        findFirst: jest.fn(),
+        findMany: jest.fn(),
+      },
+      studentTopicMastery: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue(
+            overrides.mastery ?? [
+              { pKnown: 0.4, topicId: TOPIC.id, topic: TOPIC },
+            ],
+          ),
+        upsert: jest.fn(),
+        findUnique: jest.fn(),
+      },
+      attempt: {
+        findMany: jest.fn().mockResolvedValue(overrides.recentCorrect ?? []),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      exercise: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue(overrides.exercises ?? [EXERCISE]),
+      },
+    } as unknown as PrismaService;
+  }
+
+  it('returns a result with exercise id when mastery and exercises exist', async () => {
+    const prisma = buildRecommendPrisma();
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+
+    expect(result).not.toBeNull();
+    expect(result?.exercise.id).toBe('ex-rec-01');
+    expect(result?.exercise.problem).toBe('5 - 3');
+    expect(result?.studentTheta).toBeCloseTo(Math.log(0.4 / 0.6), 3);
+  });
+
+  it('returns null when student has no mastery records', async () => {
+    const prisma = buildRecommendPrisma({ mastery: [] });
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when all topics have no available exercises', async () => {
+    const prisma = buildRecommendPrisma({ exercises: [] });
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+    expect(result).toBeNull();
+  });
+
+  it('picks exercise with highest Fisher info when multiple exist', async () => {
+    // ex-easy: b=2 (too hard for theta≈0) → low info
+    // ex-match: b=0 (matched to theta≈0) → max info
+    const exercises = [
+      { id: 'ex-hard', content: { prompt: 'hard' }, irtA: 1.0, irtB: 2.0 },
+      { id: 'ex-match', content: { prompt: 'match' }, irtA: 1.0, irtB: 0.0 },
+    ];
+    const prisma = buildRecommendPrisma({ exercises });
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+
+    expect(result?.exercise.id).toBe('ex-match');
+  });
+
+  it('excludes recently correct exercises', async () => {
+    const prisma = buildRecommendPrisma({
+      exercises: [],
+      recentCorrect: [{ exerciseId: 'ex-done' }],
+    });
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+    expect(result).toBeNull();
+  });
+
+  it('reasoning string mentions topic name and pKnown', async () => {
+    const prisma = buildRecommendPrisma();
+    const service = new MasteryService(prisma);
+    const result = await service.recommendNextExercise(COURSE_ID, STUDENT_ID);
+    expect(result?.reasoning).toContain('Sustracción');
+    expect(result?.reasoning).toContain('0.40');
+  });
+});

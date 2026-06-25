@@ -1,6 +1,9 @@
-import { Controller, Get, Param } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { MasteryService } from '@modules/mastery/mastery.service';
+import {
+  MasteryService,
+  type RecommendResult,
+} from '@modules/mastery/mastery.service';
 
 @ApiTags('mastery')
 @Controller('mastery')
@@ -31,6 +34,30 @@ export class MasteryController {
   @ApiParam({ name: 'classroomId' })
   async getByClassroom(@Param('classroomId') classroomId: string) {
     return this.masteryService.getCourseMastery(classroomId);
+  }
+
+  @Get('recommend/:courseId/:studentId')
+  @ApiOperation({
+    summary:
+      'IRT Fisher-info next exercise recommendation for a student in a course',
+  })
+  @ApiParam({ name: 'courseId' })
+  @ApiParam({ name: 'studentId' })
+  @ApiResponse({
+    status: 200,
+    description: 'Best-matched exercise for the student',
+  })
+  async recommend(
+    @Param('courseId') courseId: string,
+    @Param('studentId') studentId: string,
+  ): Promise<RecommendResult> {
+    const result = await this.masteryService.recommendNextExercise(
+      courseId,
+      studentId,
+    );
+    if (!result)
+      throw new NotFoundException('No available exercises for this student');
+    return result;
   }
 
   @Get(':studentId')
