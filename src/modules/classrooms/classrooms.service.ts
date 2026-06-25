@@ -10,6 +10,24 @@ import { CreateClassroomDto } from '@modules/classrooms/dto/create-classroom.dto
 
 export type CourseWithInviteUrl = Course & { inviteCode?: string };
 
+/** Returns a formatted label like "8° A · Matemática" or "III Medio B · Matemática". */
+function deriveCourseLabel(
+  gradeLevel: number,
+  letter: string | undefined,
+  subjectName: string,
+): string {
+  let grade: string;
+  if (gradeLevel <= 8) {
+    grade = `${gradeLevel}° básico`;
+  } else {
+    const roman =
+      ['I', 'II', 'III', 'IV'][gradeLevel - 9] ?? `${gradeLevel - 8}°`;
+    grade = `${roman} medio`;
+  }
+  const letterPart = letter ? ` ${letter.toUpperCase()}` : '';
+  return `${grade}${letterPart} · ${subjectName}`;
+}
+
 @Injectable()
 export class ClassroomsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -28,28 +46,33 @@ export class ClassroomsService {
       throw new NotFoundException('Teacher profile not found for current user');
     }
 
-    // Get or create a default subject for the demo
+    const subjectCode = dto.subjectCode ?? 'MATH';
     const subject = await this.prisma.subject.findFirst({
-      where: { code: 'MATH' },
+      where: { code: subjectCode },
     });
     if (!subject) {
       throw new NotFoundException(
-        'Default subject MATH not found — run seed first',
+        `Subject "${subjectCode}" not found — run seed first`,
       );
     }
 
-    // Get or create a school for this teacher (use first available)
     const school = await this.prisma.school.findFirst();
     if (!school) {
       throw new NotFoundException('No school found — run seed first');
     }
 
+    const gradeLevel = dto.gradeLevel ?? 4;
+    const letter = dto.letter ?? undefined;
+    const name =
+      dto.name?.trim() || deriveCourseLabel(gradeLevel, letter, subject.name);
+
     const course = await this.prisma.course.create({
       data: {
-        name: dto.name,
+        name,
         schoolId: school.id,
         subjectId: subject.id,
-        gradeLevel: 4,
+        gradeLevel,
+        letter: letter ?? null,
         academicYear: new Date().getFullYear(),
         courseTeachers: {
           create: { teacherId: teacher.id, role: 'LEAD' },
@@ -70,7 +93,7 @@ export class ClassroomsService {
     if (!teacher) return [];
 
     const links = await this.prisma.courseTeacher.findMany({
-      where: { teacherId: teacher.id },
+      where: { teacherId: teacher.id, course: { archivedAt: null } },
       include: { course: true },
       orderBy: { addedAt: 'asc' },
     });
@@ -135,6 +158,30 @@ export class ClassroomsService {
 
     if (!student) return [];
     return student.enrollments.map((e) => e.course);
+  }
+
+  async archiveCourse(
+    courseId: string,
+    teacherUserId: string,
+  ): Promise<{ id: string }> {
+    await this.prisma.ensureConnected();
+
+    const teacher = await this.prisma.teacher.findFirst({
+      where: { userId: teacherUserId },
+    });
+    if (!teacher) throw new ForbiddenException('Teacher profile not found');
+
+    const link = await this.prisma.courseTeacher.findFirst({
+      where: { teacherId: teacher.id, courseId },
+    });
+    if (!link) throw new ForbiddenException('You do not own this course');
+
+    await this.prisma.course.update({
+      where: { id: courseId },
+      data: { archivedAt: new Date() },
+    });
+
+    return { id: courseId };
   }
 
   async joinWithCode(code: string, studentUserId: string): Promise<Course> {

@@ -6,7 +6,7 @@ import { Role } from '@modules/auth/roles.enum';
 const COURSE = { id: 'course-1', name: '4° A · Matemáticas' };
 const INVITE = {
   code: 'abc123',
-  url: 'http://localhost:3002/join?code=abc123',
+  url: 'http://localhost:3005/join?code=abc123',
 };
 
 function mockUser() {
@@ -73,10 +73,23 @@ describe('ClassroomsController', () => {
   });
 
   it('invite delegates to service.createInvite', async () => {
-    const req = { user: mockUser() };
-    const result = await controller.invite(req, 'course-1');
-    expect(service.createInvite).toHaveBeenCalledWith('course-1', 'user-1', '');
-    expect(result).toEqual(INVITE);
+    // The controller derives the base URL from PUBLIC_APP_URL, which CI injects
+    // as a secret (redacted to '***' in logs). Pin it so the assertion is
+    // independent of the runtime environment.
+    const prev = process.env['PUBLIC_APP_URL'];
+    delete process.env['PUBLIC_APP_URL'];
+    try {
+      const req = { user: mockUser() };
+      const result = await controller.invite(req, 'course-1');
+      expect(service.createInvite).toHaveBeenCalledWith(
+        'course-1',
+        'user-1',
+        '',
+      );
+      expect(result).toEqual(INVITE);
+    } finally {
+      if (prev !== undefined) process.env['PUBLIC_APP_URL'] = prev;
+    }
   });
 
   it('join delegates to service.joinWithCode', async () => {
