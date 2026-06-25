@@ -1,25 +1,49 @@
 // ===== MOCKS FOR ES MODULES =====
-// jwks-rsa uses jose (ES module) which Jest cannot parse.
-// Mock before importing AppModule which depends on SupabaseJwtStrategy.
-jest.mock('jwks-rsa', () => ({
-  passportJwtSecret: () => {
-    return (
-      _request: unknown,
-      _rawJwtToken: unknown,
-      done: (error: unknown, secret?: string) => void,
-    ) => {
-      done(null, 'test-secret-key');
-    };
-  },
-}));
+// jwks-rsa uses jose (ES module) which Jest cannot parse, and we don't want the
+// test to hit a real Supabase JWKS endpoint. We mock jwks-rsa to return a locally
+// generated RSA *public* key, and sign test tokens with the matching *private*
+// key using RS256 — the same asymmetric path the production strategy validates
+// (`algorithms: ['ES256','RS256']`). The private key is exported as
+// `__testPrivateKey` so the test body can sign with it.
+jest.mock('jwks-rsa', () => {
+  // Resolve node:crypto lazily inside the factory: a top-level import cannot be
+  // referenced here (the factory is hoisted above imports). jest.requireActual
+  // avoids a `require()` import statement while still running at factory time.
+  const { generateKeyPairSync } =
+    jest.requireActual<typeof import('node:crypto')>('node:crypto');
+  const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+  });
+  return {
+    passportJwtSecret: () => {
+      return (
+        _request: unknown,
+        _rawJwtToken: unknown,
+        done: (error: unknown, secret?: string) => void,
+      ) => {
+        done(null, publicKey);
+      };
+    },
+    __testPrivateKey: privateKey,
+  };
+});
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import type { Server } from 'node:http';
 import supertest from 'supertest';
 import * as jwt from 'jsonwebtoken';
+import * as jwksRsa from 'jwks-rsa';
 import { AppModule } from '@/app.module';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { ResponseInterceptor } from '@shared/http/response.interceptor';
+
+// RSA private key generated inside the jwks-rsa mock; pairs with the public key
+// the mocked `passportJwtSecret` hands to passport-jwt.
+const TEST_PRIVATE_KEY = (jwksRsa as unknown as { __testPrivateKey: string })
+  .__testPrivateKey;
 
 /**
  * End-to-End tests for Supabase JWT authentication flow (v7).
@@ -51,15 +75,17 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
       role: 'teacher',
     },
     student: {
+      // Same identity as the seed's student1 (supabaseUid ...0011) so the upsert
+      // does not rewrite the demo user's email and break a later re-seed.
       sub: '00000000-0000-0000-0000-000000000011',
-      email: 'student@innova.demo',
+      email: 'student1@innova.demo',
       role: 'student',
     },
   };
 
   /**
-   * Generate a mock JWT payload matching Supabase RS256 JWT structure.
-   * Signed with HS256 in tests since jwks-rsa is mocked.
+   * Generate a mock JWT matching Supabase's RS256 JWT structure, signed with the
+   * test RSA private key (verified against the mocked JWKS public key).
    */
   const generateSupabaseJwt = (
     sub: string,
@@ -78,7 +104,7 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
       exp: now + 3600,
       iat: now,
     };
-    return jwt.sign(payload, 'test-secret-key', { algorithm: 'HS256' });
+    return jwt.sign(payload, TEST_PRIVATE_KEY, { algorithm: 'RS256' });
   };
 
   const ensureUserWithSupabaseUid = async (
@@ -106,6 +132,9 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
         transform: true,
       }),
     );
+    // Match main.ts: wrap successful responses in { statusCode, data, ... } so the
+    // e2e asserts the real production response contract (body.data).
+    app.useGlobalInterceptors(new ResponseInterceptor());
     await app.init();
 
     prisma = app.get<PrismaService>(PrismaService);
@@ -286,8 +315,8 @@ describe('Auth E2E — Supabase JWT Bearer Token Flow', () => {
         exp: now - 3600, // Expired 1 hour ago
         iat: now - 7200,
       };
-      const expiredToken = jwt.sign(payload, 'test-secret-key', {
-        algorithm: 'HS256',
+      const expiredToken = jwt.sign(payload, TEST_PRIVATE_KEY, {
+        algorithm: 'RS256',
       });
 
       const response = await supertest(httpServer!)
