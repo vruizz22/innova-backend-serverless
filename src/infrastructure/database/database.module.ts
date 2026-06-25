@@ -4,6 +4,11 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { z } from 'zod';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
+// serverless.yml defaults any unset secret to '' (e.g. a deleted optional URL).
+// `.optional()` only skips `undefined`, so a bare '' fails `.url()` and crashes
+// the ConfigModule at boot. Treat '' as "not provided".
+const optionalUrl = z.string().url().or(z.literal('')).optional();
+
 export const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   MONGODB_URI: z.string().url().startsWith('mongodb'),
@@ -11,18 +16,18 @@ export const envSchema = z.object({
   SUPABASE_URL: z.string().url(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_ANON_KEY: z.string().optional(),
-  PUBLIC_APP_URL: z.string().url().optional(),
-  PUBLIC_API_URL: z.string().url().optional(),
-  PUBLIC_PRACTICE_URL: z.string().url().optional(),
+  PUBLIC_APP_URL: optionalUrl,
+  PUBLIC_API_URL: optionalUrl,
+  PUBLIC_PRACTICE_URL: optionalUrl,
   CORS_ORIGINS: z.string().optional(),
-  SQS_ATTEMPT_STREAM_URL: z.string().url().optional(),
-  SQS_LLM_CLASSIFY_URL: z.string().url().optional(),
-  SQS_OCR_QUEUE_URL: z.string().url().optional(),
-  SQS_ATTEMPT_REPROCESS_URL: z.string().url().optional(),
+  SQS_ATTEMPT_STREAM_URL: optionalUrl,
+  SQS_LLM_CLASSIFY_URL: optionalUrl,
+  SQS_OCR_QUEUE_URL: optionalUrl,
+  SQS_ATTEMPT_REPROCESS_URL: optionalUrl,
   // v9 — guides pipeline queues
-  SQS_GUIDE_INGEST_URL: z.string().url().optional(),
-  SQS_SOLUTION_GEN_URL: z.string().url().optional(),
-  SQS_SUBMISSION_GRADE_URL: z.string().url().optional(),
+  SQS_GUIDE_INGEST_URL: optionalUrl,
+  SQS_SOLUTION_GEN_URL: optionalUrl,
+  SQS_SUBMISSION_GRADE_URL: optionalUrl,
   // v9 — guides pipeline storage
   S3_GUIDES_BUCKET: z.string().optional(),
   S3_SUBMISSIONS_BUCKET: z.string().optional(),
@@ -36,7 +41,7 @@ export const envSchema = z.object({
   // AWS endpoint + creds: present in local .env (LocalStack), absent in prod
   // (task-role creds + real endpoint). MUST be declared or Zod strips them from
   // process.env and the S3/SQS clients fall back to real AWS (see s3.adapter.ts).
-  AWS_ENDPOINT_URL: z.string().url().optional(),
+  AWS_ENDPOINT_URL: optionalUrl,
   AWS_ACCESS_KEY_ID: z.string().optional(),
   AWS_SECRET_ACCESS_KEY: z.string().optional(),
   SUBMISSIONS_PRESIGNED_GET_TTL: z.coerce
