@@ -1,0 +1,6 @@
+interface:
+  display_name: "Innova Backend Serverless"
+  short_description: "Repo-specific patterns and workflows for innova-backend-serverless"
+  default_prompt: "Use the innova-backend-serverless repo skill to follow existing architecture, testing, and workflow conventions."
+policy:
+  allow_implicit_invocation: true
