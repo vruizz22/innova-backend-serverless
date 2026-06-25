@@ -7,23 +7,16 @@ import {
   PrismaClient,
 } from '@prisma/client';
 
+// Single source of truth shared with the private Supabase Auth provisioner
+// (`scripts/seed-supabase-auth.ts`) so `users.supabase_uid` matches Auth `id`.
+import { DEMO_SUPABASE_UIDS } from './demo-identities';
+
 const adapter = new PrismaPg({
   connectionString: process.env['DATABASE_URL']!,
 });
 const prisma = new PrismaClient({ adapter });
 
 const DEMO_PASSWORD_HASH = 'demo_hash_not_for_prod'; // dev only — real hash not needed for seed
-
-// Demo Supabase UUIDs (deterministic for dev/testing)
-const DEMO_SUPABASE_UIDS = {
-  teacher: '00000000-0000-0000-0000-000000000001',
-  parent: '00000000-0000-0000-0000-000000000021',
-  student1: '00000000-0000-0000-0000-000000000011',
-  student2: '00000000-0000-0000-0000-000000000012',
-  student3: '00000000-0000-0000-0000-000000000013',
-  student4: '00000000-0000-0000-0000-000000000014',
-  student5: '00000000-0000-0000-0000-000000000015',
-};
 
 async function main() {
   console.log('🌱 Starting seed v7...');
@@ -436,7 +429,7 @@ async function main() {
     `✅ ${DOMAIN_TAXONOMY.length} Domains + ${subdomainCount} Subdomains upserted`,
   );
 
-  // Link topics to their domains/subdomains
+  // Legacy topic → domain/subdomain links (kept for the 3 old hardcoded topics)
   await prisma.topic.update({
     where: { id: topicSubBorrow.id },
     data: { domainId: domainArith.id, subdomainId: subArithSub.id },
@@ -449,7 +442,56 @@ async function main() {
     where: { id: topicFracSame.id },
     data: { domainId: domainFract.id, subdomainId: subFractAddSub.id },
   });
-  console.log('✅ Topics linked to domains/subdomains');
+  console.log('✅ Legacy topics linked to domains/subdomains');
+
+  // ── W1 backfill: Unit ≡ Domain (17) + Topic ≡ Subdomain (106) ────────────
+  // Creates one Unit per Domain and one Topic per Subdomain (idempotent upsert).
+  // After this backfill heatmap/BKT/mastery cover the full taxonomy without
+  // needing a schema migration. The 3 legacy units above coexist harmlessly.
+  let unitSeq = 1;
+  const unitByDomainCode = new Map<string, { id: string }>();
+  const topicBySubdomainKey = new Map<string, { id: string }>();
+
+  for (const d of DOMAIN_TAXONOMY) {
+    const domainRecord = domainByCode.get(d.code)!;
+    const unit = await prisma.unit.upsert({
+      where: { curriculumId_code: { curriculumId: curriculum.id, code: d.code } },
+      update: { name: d.name },
+      create: {
+        curriculumId: curriculum.id,
+        // gradeLevel=3: cross-grade domain; 3 is the entry grade for this curriculum
+        gradeLevel: 3,
+        sequence: unitSeq++,
+        code: d.code,
+        name: d.name,
+      },
+    });
+    unitByDomainCode.set(d.code, unit);
+
+    for (const s of d.subdomains) {
+      const sub = subdomainByKey.get(`${d.code}:${s.code}`)!;
+      const topic = await prisma.topic.upsert({
+        where: { unitId_code: { unitId: unit.id, code: s.code } },
+        update: { name: s.name, domainId: domainRecord.id, subdomainId: sub.id },
+        create: {
+          unitId: unit.id,
+          domainId: domainRecord.id,
+          subdomainId: sub.id,
+          code: s.code,
+          name: s.name,
+          // BKT defaults (Corbett & Anderson 1995 — recalibrated from real data later)
+          bktPL0: 0.3,
+          bktPTransit: 0.1,
+          bktPSlip: 0.1,
+          bktPGuess: 0.2,
+        },
+      });
+      topicBySubdomainKey.set(`${d.code}:${s.code}`, topic);
+    }
+  }
+  console.log(
+    `✅ W1 backfill: ${unitByDomainCode.size} Units (≡ Domain) + ${topicBySubdomainKey.size} Topics (≡ Subdomain)`,
+  );
 
   // Error Tags — v8 schema with enums
   const errorTagDefs: Array<{
@@ -668,9 +710,23 @@ async function main() {
   );
 
   // Users
+  // Key the upsert by supabaseUid (the stable external identity), not email:
+  // tests may upsert by supabaseUid with a different email, so an email-keyed
+  // upsert would try to CREATE and collide on the supabaseUid unique constraint.
+  await prisma.user.upsert({
+    where: { supabaseUid: DEMO_SUPABASE_UIDS.admin },
+    update: { email: 'admin@innova.demo', authRole: 'admin' },
+    create: {
+      email: 'admin@innova.demo',
+      supabaseUid: DEMO_SUPABASE_UIDS.admin,
+      authRole: 'admin',
+      passwordHash: DEMO_PASSWORD_HASH,
+    },
+  });
+
   const teacherUser = await prisma.user.upsert({
-    where: { email: 'teacher@innova.demo' },
-    update: { supabaseUid: DEMO_SUPABASE_UIDS.teacher, authRole: 'teacher' },
+    where: { supabaseUid: DEMO_SUPABASE_UIDS.teacher },
+    update: { email: 'teacher@innova.demo', authRole: 'teacher' },
     create: {
       email: 'teacher@innova.demo',
       supabaseUid: DEMO_SUPABASE_UIDS.teacher,
@@ -692,13 +748,13 @@ async function main() {
   // Course
   const course = await prisma.course.upsert({
     where: { id: 'seed-course-001' },
-    update: { name: '4° A · Matemáticas' },
+    update: { name: '7° A · Matemáticas' },
     create: {
       id: 'seed-course-001',
       schoolId: school.id,
       subjectId: subject.id,
-      name: '4° A · Matemáticas',
-      gradeLevel: 4,
+      name: '7° A · Matemáticas',
+      gradeLevel: 7,
       academicYear: 2026,
     },
   });
@@ -746,8 +802,8 @@ async function main() {
   for (let i = 0; i < studentData.length; i++) {
     const { email, supabaseUid, displayName } = studentData[i];
     const sUser = await prisma.user.upsert({
-      where: { email },
-      update: { supabaseUid, authRole: 'student' },
+      where: { supabaseUid },
+      update: { email, authRole: 'student' },
       create: {
         email,
         supabaseUid,
@@ -774,8 +830,8 @@ async function main() {
 
   // Parent
   const parentUser = await prisma.user.upsert({
-    where: { email: 'parent@innova.demo' },
-    update: { supabaseUid: DEMO_SUPABASE_UIDS.parent, authRole: 'parent' },
+    where: { supabaseUid: DEMO_SUPABASE_UIDS.parent },
+    update: { email: 'parent@innova.demo', authRole: 'parent' },
     create: {
       email: 'parent@innova.demo',
       supabaseUid: DEMO_SUPABASE_UIDS.parent,
@@ -798,11 +854,15 @@ async function main() {
     where: {
       parentId_studentId: { parentId: parent.id, studentId: studentIds[0] },
     },
-    update: {},
+    // confirmedAt must be set: parent.service.listChildren only returns
+    // confirmed links (a parent must accept the link in the real flow). The
+    // demo link is pre-confirmed so the parent account sees its child.
+    update: { confirmedAt: new Date() },
     create: {
       parentId: parent.id,
       studentId: studentIds[0],
       relationship: 'PADRE',
+      confirmedAt: new Date(),
     },
   });
 
@@ -868,13 +928,19 @@ async function main() {
     },
   ];
 
+  // Link exercises to the canonical ARITH:SUB topic from the W1 backfill so that
+  // student practice feeds into heatmap/BKT correctly. Falls back to the legacy
+  // topic if the backfill hasn't run yet (shouldn't happen in normal seed order).
+  const subTopicId =
+    topicBySubdomainKey.get('ARITH:SUB')?.id ?? topicSubBorrow.id;
+
   for (const def of exerciseDefs) {
     await prisma.exercise.upsert({
       where: { id: def.id },
       update: {},
       create: {
         id: def.id,
-        topicId: topicSubBorrow.id,
+        topicId: subTopicId,
         source: 'SYSTEM',
         content: { prompt: def.prompt, expectedAnswer: def.expectedAnswer },
         irtA: def.irtA,
@@ -884,148 +950,28 @@ async function main() {
     });
   }
   console.log(
-    `✅ ${exerciseDefs.length} Exercises created for subtraction_borrow`,
+    `✅ ${exerciseDefs.length} Exercises seeded under ARITH:SUB topic`,
   );
 
-  // StudentTopicMastery
-  const masteryData = [
-    { studentIdx: 0, topicId: topicSubBorrow.id, pKnown: 0.22 },
-    { studentIdx: 0, topicId: topicAddCarry.id, pKnown: 0.55 },
-    { studentIdx: 1, topicId: topicSubBorrow.id, pKnown: 0.82 },
-    { studentIdx: 1, topicId: topicAddCarry.id, pKnown: 0.88 },
-    { studentIdx: 2, topicId: topicSubBorrow.id, pKnown: 0.68 },
-    { studentIdx: 2, topicId: topicAddCarry.id, pKnown: 0.45 },
-    { studentIdx: 3, topicId: topicSubBorrow.id, pKnown: 0.53 },
-    { studentIdx: 3, topicId: topicAddCarry.id, pKnown: 0.6 },
-    { studentIdx: 4, topicId: topicSubBorrow.id, pKnown: 0.35 },
-    { studentIdx: 4, topicId: topicFracSame.id, pKnown: 0.29 },
-  ];
+  // StudentTopicMastery — NOT seeded (W2 principle: mastery grows from real attempts).
+  // Records are created by MasteryService.applyAttempt() as students submit work.
 
-  for (const m of masteryData) {
-    const studentId = studentIds[m.studentIdx];
-    await prisma.studentTopicMastery.upsert({
-      where: { studentId_topicId: { studentId, topicId: m.topicId } },
-      update: { pKnown: m.pKnown },
-      create: { studentId, topicId: m.topicId, pKnown: m.pKnown },
-    });
-  }
-  console.log(`✅ StudentTopicMastery records created`);
+  // Attempts — NOT seeded (W2 principle: attempts come from real student interactions).
+  // Use the local demo flow: student logs in → opens Practice → solves exercises.
 
-  // Sample Attempts for Diego Vega (student 0)
-  const errorTagSubBorrow = await prisma.errorTag.findUnique({
-    where: { code: 'ARITH_SUB_BORROW_OMITTED_TENS_G3' },
-  });
-  const attemptDefs = [
-    {
-      id: 'seed-attempt-001',
-      studentId: studentIds[0],
-      exerciseId: 'seed-ex-sub-001',
-      isCorrect: false,
-      errorTagId: errorTagSubBorrow?.id,
-    },
-    {
-      id: 'seed-attempt-002',
-      studentId: studentIds[0],
-      exerciseId: 'seed-ex-sub-002',
-      isCorrect: false,
-      errorTagId: errorTagSubBorrow?.id,
-    },
-    {
-      id: 'seed-attempt-003',
-      studentId: studentIds[0],
-      exerciseId: 'seed-ex-sub-007',
-      isCorrect: true,
-      errorTagId: null,
-    },
-    {
-      id: 'seed-attempt-004',
-      studentId: studentIds[1],
-      exerciseId: 'seed-ex-sub-001',
-      isCorrect: true,
-      errorTagId: null,
-    },
-    {
-      id: 'seed-attempt-005',
-      studentId: studentIds[4],
-      exerciseId: 'seed-ex-sub-003',
-      isCorrect: false,
-      errorTagId: errorTagSubBorrow?.id,
-    },
-  ];
+  // TeacherAlerts — NOT seeded (W2 principle: alerts come from the ai-engine
+  // hourly cron A9, not invented data). The AlertsInbox UI shows an empty state
+  // until the first hourly run detects a real pattern.
 
-  for (const def of attemptDefs) {
-    await prisma.attempt.upsert({
-      where: { id: def.id },
-      update: {},
-      create: {
-        id: def.id,
-        studentId: def.studentId,
-        exerciseId: def.exerciseId,
-        courseId: course.id,
-        isCorrect: def.isCorrect,
-        errorTagId: def.errorTagId ?? null,
-        classifierSource: 'RULE',
-        confidence: def.isCorrect ? 0.95 : 0.88,
-        inputMode: 'DIGITAL',
-        status: 'CLASSIFIED',
-      },
-    });
-  }
-  console.log(`✅ ${attemptDefs.length} sample Attempts created`);
-
-  // TeacherAlerts
-  const alertDefs = [
-    {
-      id: 'seed-alert-001',
-      teacherId: teacher.id,
-      courseId: course.id,
-      topicId: topicSubBorrow.id,
-      studentId: studentIds[0],
-      alertType: 'AT_RISK_STUDENT',
-      severity: 'HIGH',
-      payload: {
-        message: 'Diego Vega lleva 3 errores seguidos en T-SUB-BORROW',
-      },
-    },
-    {
-      id: 'seed-alert-002',
-      teacherId: teacher.id,
-      courseId: course.id,
-      topicId: topicSubBorrow.id,
-      studentId: null,
-      alertType: 'COMMON_ERROR_IN_TOPIC',
-      severity: 'MED',
-      payload: {
-        message: 'BORROW_OMITTED_TENS detectado en 3 alumnos — patrón común',
-      },
-    },
-  ];
-
-  for (const alert of alertDefs) {
-    await prisma.teacherAlert.upsert({
-      where: { id: alert.id },
-      update: {},
-      create: {
-        id: alert.id,
-        teacherId: alert.teacherId,
-        courseId: alert.courseId,
-        topicId: alert.topicId,
-        studentId: alert.studentId ?? undefined,
-        alertType: alert.alertType,
-        severity: alert.severity,
-        payload: alert.payload,
-      },
-    });
-  }
-  console.log(`✅ ${alertDefs.length} TeacherAlerts created`);
-
-  console.log('\n🎉 Seed v8 complete!');
-  console.log(`   Teacher: teacher@innova.demo`);
+  console.log('\n🎉 Seed v9 complete (W1+W2 — real data, no invented mastery/alerts)!');
+  console.log(`   Admin:    admin@innova.demo`);
+  console.log(`   Teacher:  teacher@innova.demo`);
   console.log(`   Students: student1–5@innova.demo`);
-  console.log(`   Parent: parent@innova.demo (linked to Diego Vega)`);
+  console.log(`   Parent:   parent@innova.demo (linked to Diego Vega)`);
   console.log(`   Course: "${course.name}" (${course.id})`);
   console.log('\n📌 Demo Supabase UID mapping:');
-  console.log(`   teacher@innova.demo → ${DEMO_SUPABASE_UIDS.teacher}`);
+  console.log(`   admin@innova.demo    → ${DEMO_SUPABASE_UIDS.admin}`);
+  console.log(`   teacher@innova.demo  → ${DEMO_SUPABASE_UIDS.teacher}`);
   console.log(`   student1@innova.demo → ${DEMO_SUPABASE_UIDS.student1}`);
 }
 

@@ -219,6 +219,7 @@ export class AuthService {
   async me(user: SupabaseUser): Promise<{
     id: string;
     email: string;
+    name: string;
     role: string;
     profileId: string | null;
   }> {
@@ -229,6 +230,7 @@ export class AuthService {
     return {
       id: user.prismaUserId,
       email: user.email,
+      name: user.name ?? user.email.split('@')[0] ?? user.email,
       role: user.role,
       profileId,
     };

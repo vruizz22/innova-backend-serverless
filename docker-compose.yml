@@ -1,19 +1,6 @@
-version: "3.8"
-
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: innova-postgres-dev
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: innova_secret
-      POSTGRES_DB: innova_dev_db
-    ports:
-      - "5433:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-
+  # Telemetría / datos no estructurados. Es lo ÚNICO imprescindible de docker-compose:
+  # la DB relacional + Auth ahora vive en Supabase (`supabase start`, Postgres :54322).
   mongodb:
     image: mongo:7.0-rc
     container_name: innova-mongo-dev
@@ -27,6 +14,22 @@ services:
       - mongodb_data:/data/db
     restart: unless-stopped
 
+  # Opcional — SQS + S3 emulados para correr el pipeline ASÍNCRONO v9 en vivo
+  # (ingesta de guías, generación de pautas, corrección de fotos) tal cual prod.
+  # Levántalo SOLO cuando lo necesites:  docker compose up -d localstack
+  localstack:
+    image: localstack/localstack:3
+    container_name: innova-localstack-dev
+    ports:
+      - "4566:4566"
+    environment:
+      SERVICES: "sqs,s3"
+      DEBUG: "0"
+      PERSISTENCE: "0"
+    volumes:
+      - localstack_data:/var/lib/localstack
+    restart: unless-stopped
+
 volumes:
-  postgres_data:
   mongodb_data:
+  localstack_data:

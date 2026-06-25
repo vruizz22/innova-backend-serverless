@@ -3,10 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Exercise } from '@prisma/client';
 import { z } from 'zod';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { SqsAdapter } from '@adapters/sqs.adapter';
 import { CreateItemDto } from '@modules/items/dto/create-item.dto';
+import type { ExerciseGenerateMessage } from '@shared/sqs/guide-messages';
 
 const exerciseContentSchema = z.object({
   prompt: z.string().min(1),
@@ -22,11 +25,18 @@ export interface ItemView {
     prompt: string;
     problem: string;
     expectedAnswer: number | null;
+    correct_answer_latex: string | null;
   };
   difficulty: 'easy' | 'medium' | 'hard';
   irtA: number;
   irtB: number;
+  source: string;
   createdAt: Date;
+}
+
+export interface GenerateItemsResult {
+  generated: number;
+  message: string;
 }
 
 function difficultyFromIrt(irtB: number): ItemView['difficulty'] {
@@ -41,28 +51,47 @@ type ExerciseWithTopic = Exercise & {
 
 function toItemView(ex: ExerciseWithTopic): ItemView {
   const content = ex.content as Record<string, unknown>;
-  const prompt = typeof content['prompt'] === 'string' ? content['prompt'] : '';
+  const rawPrompt =
+    typeof content['prompt'] === 'string' ? content['prompt'] : '';
+  const prompt =
+    rawPrompt ||
+    (typeof content['statement_latex'] === 'string'
+      ? content['statement_latex']
+      : '');
   const expectedAnswer =
     typeof content['expectedAnswer'] === 'number'
       ? content['expectedAnswer']
       : null;
+  const correct_answer_latex =
+    typeof content['correct_answer_latex'] === 'string'
+      ? content['correct_answer_latex']
+      : typeof content['final_answer'] === 'string'
+        ? content['final_answer']
+        : null;
 
   return {
     id: ex.id,
     topicId: ex.topicId,
     topicCode: ex.topic.code,
     topicName: ex.topic.name,
-    content: { prompt, problem: prompt, expectedAnswer },
+    content: { prompt, problem: prompt, expectedAnswer, correct_answer_latex },
     difficulty: difficultyFromIrt(ex.irtB),
     irtA: ex.irtA,
     irtB: ex.irtB,
+    source: ex.source,
     createdAt: ex.createdAt,
   };
 }
 
+const EXERCISE_GENERATE_QUEUE_URL =
+  process.env['EXERCISE_GENERATE_QUEUE_URL'] ?? '';
+
 @Injectable()
 export class ItemsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sqs: SqsAdapter,
+  ) {}
 
   async create(dto: CreateItemDto): Promise<Exercise> {
     const parsed = exerciseContentSchema.safeParse(dto.content);
@@ -126,5 +155,28 @@ export class ItemsService {
     });
     if (!exercise) return null;
     return { irtA: exercise.irtA, irtB: exercise.irtB };
+  }
+
+  async generateItems(input: {
+    subdomainCode: string;
+    gradeLevel: number;
+    targetErrorCodes: string[];
+    count: number;
+  }): Promise<GenerateItemsResult> {
+    const msg: ExerciseGenerateMessage = {
+      subdomain_code: input.subdomainCode,
+      grade_level: input.gradeLevel,
+      target_error_codes: input.targetErrorCodes,
+      count: input.count,
+      trace_id: randomUUID(),
+    };
+    await this.sqs.publishStandard({
+      queueUrl: EXERCISE_GENERATE_QUEUE_URL,
+      messageBody: msg,
+    });
+    return {
+      generated: 0,
+      message: `Generación de ${input.count} ejercicio(s) encolada. Aparecerán en el banco en unos minutos.`,
+    };
   }
 }

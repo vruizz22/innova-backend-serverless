@@ -11,15 +11,31 @@ const mockAttemptResponse = {
 };
 
 const mockOcrResult = {
-  rawSteps: [{ expression: '53 - 26 = 33', isFinal: true }],
-  finalAnswer: '33',
-  topicHint: 'subtraction_borrow',
-  confidence: 0.92,
+  exercises: [
+    {
+      problem: '53 - 26',
+      rawSteps: [{ expression: '53 - 26 = 33', isFinal: true }],
+      finalAnswer: '33',
+      topicHint: 'subtraction_borrow',
+      confidence: 0.92,
+    },
+  ],
+};
+
+const mockStatusResponse = {
+  attemptId: 'attempt-001',
+  status: 'CLASSIFIED',
+  isCorrect: false,
+  errorTagCode: 'BORROW_OMITTED_TENS',
+  errorTagName: 'Omitió el préstamo en las decenas',
+  classifierSource: 'LLM',
+  confidence: 0.88,
 };
 
 const mockAttemptsService = {
   create: jest.fn().mockResolvedValue(mockAttemptResponse),
   extractOcr: jest.fn().mockResolvedValue(mockOcrResult),
+  getStatus: jest.fn().mockResolvedValue(mockStatusResponse),
 };
 
 describe('AttemptsController', () => {
@@ -79,5 +95,11 @@ describe('AttemptsController', () => {
     const result = await controller.ocrExtract(file);
     expect(mockAttemptsService.extractOcr).toHaveBeenCalledWith(file.buffer);
     expect(result).toEqual(mockOcrResult);
+  });
+
+  it('status delegates to AttemptsService.getStatus', async () => {
+    const result = await controller.status('attempt-001');
+    expect(mockAttemptsService.getStatus).toHaveBeenCalledWith('attempt-001');
+    expect(result).toEqual(mockStatusResponse);
   });
 });

@@ -31,11 +31,21 @@ export class UpdateGuideQuestionDto {
 
   @ApiProperty({
     required: false,
-    description: 'Confirmed topic (sets topicSource=TEACHER)',
+    description: 'Confirmed curriculum topic (sets topicSource=TEACHER)',
   })
   @IsOptional()
   @IsString()
   topicId?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Confirmed taxonomy subdomain (sets domainId from it + topicSource=TEACHER). ' +
+      'This is the primary classification unit since v9.1.',
+  })
+  @IsOptional()
+  @IsString()
+  subdomainId?: string;
 
   @ApiProperty({
     required: false,

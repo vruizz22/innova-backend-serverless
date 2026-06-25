@@ -173,6 +173,15 @@ export class GuidesController {
     return this.guidesService.archive(req.user.prismaUserId, id);
   }
 
+  @Get(':id/source-url')
+  @ApiOperation({
+    summary: 'Presigned GET URL to view the original PDF (short TTL)',
+  })
+  @ApiParam({ name: 'id' })
+  sourceUrl(@Request() req: AuthRequest, @Param('id') id: string) {
+    return this.guidesService.getSourceUrl(req.user.prismaUserId, id);
+  }
+
   @Get(':id/results')
   @ApiOperation({
     summary: 'Results matrix: latest submission per student × question (C11)',

@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  HttpCode,
+} from '@nestjs/common';
 import {
   ApiBody,
   ApiOperation,
@@ -47,5 +55,33 @@ export class ItemsController {
   @ApiParam({ name: 'id' })
   getIrtParams(@Param('id') id: string) {
     return this.itemsService.getIrtParams(id);
+  }
+
+  @Post('generate')
+  @HttpCode(202)
+  @ApiOperation({ summary: 'Enqueue AI exercise generation for a subdomain' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        subdomainCode: { type: 'string' },
+        gradeLevel: { type: 'integer', minimum: 1, maximum: 12 },
+        targetErrorCodes: { type: 'array', items: { type: 'string' } },
+        count: { type: 'integer', minimum: 1, maximum: 10 },
+      },
+      required: ['subdomainCode', 'gradeLevel', 'targetErrorCodes', 'count'],
+    },
+  })
+  @ApiResponse({ status: 202, description: 'Generation enqueued' })
+  generate(
+    @Body()
+    body: {
+      subdomainCode: string;
+      gradeLevel: number;
+      targetErrorCodes: string[];
+      count: number;
+    },
+  ) {
+    return this.itemsService.generateItems(body);
   }
 }

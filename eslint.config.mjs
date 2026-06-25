@@ -37,6 +37,13 @@ export default tseslint.config(
     files: ['**/*.spec.ts', '**/*.e2e-spec.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',
+      // Jest matchers (expect.objectContaining/any) and mock fns are typed as
+      // `any` by design; the type-aware unsafe rules add only noise in tests.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-floating-promises': 'off',
     },
   },
 );

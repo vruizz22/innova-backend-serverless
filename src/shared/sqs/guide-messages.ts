@@ -33,6 +33,15 @@ export interface SubmissionGradeMessage {
   trace_id: string;
 }
 
+/** backend → ai-engine: `exercise-generate-queue`. */
+export interface ExerciseGenerateMessage {
+  subdomain_code: string;
+  grade_level: number;
+  target_error_codes: string[];
+  count: number;
+  trace_id: string;
+}
+
 /**
  * ai-engine → backend: extended `attempt-reprocess-queue` contract.
  * Retro-compatible: legacy OCR-loop messages carry `attempt_id` and omit the

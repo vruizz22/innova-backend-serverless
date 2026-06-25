@@ -130,7 +130,7 @@ export class AssignmentService {
   async findByStudent(studentId: string) {
     await this.prisma.ensureConnected();
     return this.prisma.assignmentTarget.findMany({
-      where: { studentId },
+      where: { studentId, assignment: { kind: { not: 'GUIDE' } } },
       include: {
         assignment: {
           include: {

@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { GuideSubmissionsService } from '@modules/guide-submissions/guide-submissions.service';
 import { CreateSubmissionDto } from '@modules/guide-submissions/dto/create-submission.dto';
+import { ProcessScanPageDto } from '@modules/guide-submissions/dto/scan-page.dto';
 import { Roles } from '@modules/auth/roles.decorator';
 import { Role } from '@modules/auth/roles.enum';
 import type { SupabaseUser } from '@modules/auth/supabase-jwt.strategy';
@@ -79,5 +80,35 @@ export class GuideSubmissionsController {
   @ApiParam({ name: 'id' })
   getResults(@Request() req: AuthRequest, @Param('id') id: string) {
     return this.service.getResults(req.user.prismaUserId, id);
+  }
+
+  @Get('guides/:id/scan-page-url')
+  @ApiOperation({
+    summary:
+      'Presigned PUT URL to upload a full-page photo for scan-page auto-split',
+  })
+  @ApiParam({ name: 'id' })
+  getScanPageUploadUrl(@Request() req: AuthRequest, @Param('id') id: string) {
+    return this.service.getScanPageUploadUrl(req.user.prismaUserId, id);
+  }
+
+  @Post('guides/:id/scan-page')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'OCR a page photo and auto-create submissions for detected exercises',
+  })
+  @ApiParam({ name: 'id' })
+  @ApiBody({ type: ProcessScanPageDto })
+  processScanPage(
+    @Request() req: AuthRequest,
+    @Param('id') id: string,
+    @Body() dto: ProcessScanPageDto,
+  ) {
+    return this.service.processScanPage(
+      req.user.prismaUserId,
+      id,
+      dto.photoKey,
+    );
   }
 }

@@ -159,7 +159,7 @@ describe('ClassroomsService', () => {
       const result = await service.createInvite(
         'course-1',
         'user-teacher-1',
-        'http://localhost:3002',
+        'http://localhost:3005',
       );
       expect(result.code).toBe('abc123');
       expect(result.url).toContain('abc123');
@@ -171,7 +171,7 @@ describe('ClassroomsService', () => {
         service.createInvite(
           'course-1',
           'user-teacher-1',
-          'http://localhost:3002',
+          'http://localhost:3005',
         ),
       ).rejects.toThrow(ForbiddenException);
     });
@@ -182,7 +182,7 @@ describe('ClassroomsService', () => {
         service.createInvite(
           'course-1',
           'user-teacher-1',
-          'http://localhost:3002',
+          'http://localhost:3005',
         ),
       ).rejects.toThrow(ForbiddenException);
     });
