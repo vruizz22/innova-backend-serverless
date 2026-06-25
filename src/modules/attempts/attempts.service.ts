@@ -1,5 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '@infrastructure/database/prisma.service';
+import { S3Adapter } from '@adapters/s3.adapter';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { MasteryService } from '@modules/mastery/mastery.service';
 import {
@@ -10,12 +12,21 @@ import { RuleEngineService } from '@modules/attempts/rule-engine/engine.service'
 import { RuleClassificationResult } from '@modules/attempts/rule-engine/strategy.interface';
 import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
 import { ReportAttemptErrorDto } from '@modules/attempts/dto/report-attempt-error.dto';
+import {
+  SolveAdhocDto,
+  type SolveAdhocResponse,
+} from '@modules/attempts/dto/solve-adhoc.dto';
 
-export interface OcrExtractResult {
+export interface OcrExtractExercise {
+  problem: string;
   rawSteps: AttemptStepDto[];
   finalAnswer: string;
   topicHint: string | null;
   confidence: number;
+}
+
+export interface OcrExtractResult {
+  exercises: OcrExtractExercise[];
 }
 
 export interface ReportAck {
@@ -31,6 +42,45 @@ export interface AttemptResponse {
   confidence: number;
 }
 
+/**
+ * Current classification of an attempt. `status` is `PENDING` while an
+ * UNCLASSIFIED attempt waits for the async LLM worker, then `CLASSIFIED` once the
+ * worker writes the real `errorTag`. `/scan` polls this for parity with guides
+ * (which poll GuideSubmission status).
+ */
+export interface AttemptStatusResponse {
+  attemptId: string;
+  status: string;
+  isCorrect: boolean;
+  errorTagCode: string | null;
+  errorTagName: string | null;
+  classifierSource: string;
+  confidence: number | null;
+}
+
+export interface AttemptStepView {
+  stepIndex: number;
+  contentLatex: string;
+  isCorrect: boolean | null;
+}
+
+export interface AttemptDetailResponse {
+  attemptId: string;
+  status: string;
+  isCorrect: boolean;
+  errorTagCode: string | null;
+  errorTagName: string | null;
+  classifierSource: string;
+  confidence: number | null;
+  steps: AttemptStepView[];
+  submission: {
+    photoUrls: string[];
+    transcriptionLatex: string | null;
+    transcriptionJson: Prisma.JsonValue | null;
+    transcriptionConfidence: number | null;
+  } | null;
+}
+
 @Injectable()
 export class AttemptsService {
   constructor(
@@ -39,6 +89,7 @@ export class AttemptsService {
     private readonly masteryService: MasteryService,
     private readonly sqsAdapter: SqsAdapter,
     private readonly ocrOrchestrator: MathOCROrchestrator,
+    private readonly s3: S3Adapter,
   ) {}
 
   async create(
@@ -163,14 +214,96 @@ export class AttemptsService {
     };
   }
 
+  /**
+   * Returns the live classification of an attempt so `/scan` can poll after a
+   * submit (the synchronous response is RULE-only; UNCLASSIFIED attempts are
+   * finished asynchronously by the LLM worker, which flips `status` to
+   * CLASSIFIED and writes the real error tag).
+   */
+  async getStatus(attemptId: string): Promise<AttemptStatusResponse> {
+    await this.prisma.ensureConnected();
+
+    const attempt = await this.prisma.attempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        status: true,
+        isCorrect: true,
+        classifierSource: true,
+        confidence: true,
+        errorTag: { select: { code: true, name: true } },
+      },
+    });
+    if (!attempt) {
+      throw new NotFoundException(`Attempt ${attemptId} not found`);
+    }
+
+    return {
+      attemptId: attempt.id,
+      status: attempt.status,
+      isCorrect: attempt.isCorrect,
+      errorTagCode: attempt.errorTag?.code ?? null,
+      errorTagName: attempt.errorTag?.name || null,
+      classifierSource: attempt.classifierSource,
+      confidence: attempt.confidence,
+    };
+  }
+
   async extractOcr(imageBuffer: Buffer): Promise<OcrExtractResult> {
     const result = await this.ocrOrchestrator.extract(imageBuffer);
     return {
-      rawSteps: result.rawSteps,
-      finalAnswer: result.finalAnswer,
-      topicHint: result.topicHint,
-      confidence: result.confidence,
+      exercises: result.exercises.map((ex) => ({
+        problem: ex.problem,
+        rawSteps: ex.rawSteps,
+        finalAnswer: ex.finalAnswer,
+        topicHint: ex.topicHint,
+        confidence: ex.confidence,
+      })),
     };
+  }
+
+  /**
+   * A10 — Creates a PENDING attempt for an ad-hoc scan (no guide context) and
+   * enqueues it for the adhoc_solver worker. The student scanned an exercise
+   * whose expected answer cannot be derived client-side (symbolic algebra). The
+   * solver runs FULL-mode solution_generator, then writes the classification back
+   * to the attempt row. Frontend polls GET /attempts/:id/status for the result.
+   */
+  async solveAdhoc(
+    dto: SolveAdhocDto,
+    traceId: string,
+  ): Promise<SolveAdhocResponse> {
+    await this.prisma.ensureConnected();
+
+    const attempt = await this.prisma.attempt.create({
+      data: {
+        studentId: dto.studentId,
+        exerciseId: null,
+        courseId: dto.courseId ?? null,
+        isCorrect: false,
+        errorTagId: null,
+        classifierSource: 'LLM',
+        confidence: null,
+        inputMode: 'SCAN_ADHOC',
+        status: 'PENDING',
+        traceId,
+      },
+    });
+
+    await this.sqsAdapter.publishStandard({
+      queueUrl: process.env['SQS_ADHOC_SOLVE_URL'] ?? '',
+      messageBody: {
+        attempt_id: attempt.id,
+        problem_latex: dto.problemLatex,
+        student_steps: dto.studentSteps ?? [],
+        student_final_answer: dto.studentFinalAnswer,
+        student_id: dto.studentId,
+        grade_level: dto.gradeLevel ?? 7,
+        trace_id: traceId,
+      },
+    });
+
+    return { attemptId: attempt.id };
   }
 
   /**
@@ -212,6 +345,71 @@ export class AttemptsService {
     });
 
     return { attemptId: attempt.id, reported: true };
+  }
+
+  async getDetail(attemptId: string): Promise<AttemptDetailResponse> {
+    await this.prisma.ensureConnected();
+
+    const attempt = await this.prisma.attempt.findUnique({
+      where: { id: attemptId },
+      select: {
+        id: true,
+        status: true,
+        isCorrect: true,
+        classifierSource: true,
+        confidence: true,
+        errorTag: { select: { code: true, name: true } },
+        steps: {
+          select: { stepIndex: true, contentLatex: true, isCorrect: true },
+          orderBy: { stepIndex: 'asc' },
+        },
+        guideSubmission: {
+          select: {
+            photoKeys: true,
+            transcriptionLatex: true,
+            transcriptionJson: true,
+            transcriptionConfidence: true,
+          },
+        },
+      },
+    });
+
+    if (!attempt) throw new NotFoundException(`Attempt ${attemptId} not found`);
+
+    let submission: AttemptDetailResponse['submission'] = null;
+    if (attempt.guideSubmission) {
+      const bucket = process.env['S3_SUBMISSIONS_BUCKET'] ?? '';
+      const photoUrls = bucket
+        ? await Promise.all(
+            attempt.guideSubmission.photoKeys.map((key) =>
+              this.s3.createPresignedGetUrl({ bucket, key, ttlSeconds: 3600 }),
+            ),
+          )
+        : [];
+      submission = {
+        photoUrls,
+        transcriptionLatex: attempt.guideSubmission.transcriptionLatex,
+        transcriptionJson: attempt.guideSubmission.transcriptionJson,
+        transcriptionConfidence:
+          attempt.guideSubmission.transcriptionConfidence,
+      };
+    }
+
+    return {
+      attemptId: attempt.id,
+      status: attempt.status,
+      isCorrect: attempt.isCorrect,
+      errorTagCode: attempt.errorTag?.code ?? null,
+      errorTagName: attempt.errorTag?.name ?? null,
+      classifierSource: attempt.classifierSource,
+      confidence: attempt.confidence,
+      steps: attempt.steps.map((s) => ({
+        stepIndex: s.stepIndex,
+        contentLatex: s.contentLatex,
+        isCorrect: s.isCorrect,
+      })),
+      submission,
+    };
   }
 }
 
