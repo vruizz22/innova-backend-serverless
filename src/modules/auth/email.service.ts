@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Resend } from 'resend';
 
 /**
@@ -13,13 +12,17 @@ export class EmailService {
   private resendClient: Resend | undefined = undefined;
   private fromEmail: string | undefined = undefined;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor() {
     this.initializeClient();
   }
 
   private initializeClient(): void {
-    const apiKey = this.configService.get<string>('RESEND_API_KEY');
-    const fromEmail = this.configService.get<string>('RESEND_FROM_EMAIL');
+    // Read straight from process.env (ConfigModule runs in passthrough mode).
+    // The serverless-esbuild bundle does not emit decorator metadata, so
+    // constructor-time type-based DI (ConfigService) resolves to undefined and
+    // crashes the whole app at boot. process.env has no such dependency.
+    const apiKey = process.env['RESEND_API_KEY'];
+    const fromEmail = process.env['RESEND_FROM_EMAIL'];
     if (!apiKey || !fromEmail) {
       this.logger.warn(
         'RESEND_API_KEY or RESEND_FROM_EMAIL not set — email delivery disabled',
