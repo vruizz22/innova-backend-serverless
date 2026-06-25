@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { ClaudeVisionAdapter } from '@adapters/math-ocr/claude-vision.adapter';
 import { GeminiVisionAdapter } from '@adapters/math-ocr/gemini-vision.adapter';
 import { MathOCROrchestrator } from '@adapters/math-ocr/math-ocr.orchestrator';
+import { S3Adapter } from '@adapters/s3.adapter';
 import { SqsAdapter } from '@adapters/sqs.adapter';
 import { AttemptsController } from '@modules/attempts/attempts.controller';
 import { AttemptsService } from '@modules/attempts/attempts.service';
@@ -21,6 +22,7 @@ import { AttemptReprocessWorker } from '@infrastructure/workers/attempt-reproces
     AttemptsService,
     RuleEngineService,
     RuleEngineFactory,
+    S3Adapter,
     SqsAdapter,
     MathOCROrchestrator,
     GeminiVisionAdapter,

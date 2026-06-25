@@ -10,6 +10,11 @@ export default defineConfig({
     seed: 'ts-node -r tsconfig-paths/register prisma/seed.ts',
   },
   datasource: {
-    url: process.env['DATABASE_URL'],
+    // El CLI (migrate/seed) usa esta url. En Supabase las migraciones requieren una
+    // conexión DIRECTA (no el pooler de transacciones). Por eso preferimos DIRECT_URL
+    // si está seteado (prod), con fallback a DATABASE_URL (local = conexión directa a
+    // :54322, no hay pooler). El runtime (PrismaPg adapter en prisma.service.ts) usa
+    // siempre DATABASE_URL (en prod = pooler :6543).
+    url: process.env['DIRECT_URL'] ?? process.env['DATABASE_URL'],
   },
 });

@@ -181,7 +181,7 @@ export class GuidesService {
     await this.prisma.ensureConnected();
     await this.loadOwnedGuide(teacherUserId, guideId);
 
-    return this.prisma.guide.findUnique({
+    const guide = await this.prisma.guide.findUnique({
       where: { id: guideId },
       include: {
         questions: {
@@ -193,6 +193,50 @@ export class GuidesService {
         },
       },
     });
+    if (!guide) return null;
+
+    // The taxonomy classification (domain/subdomain) lives as scalar FKs on
+    // GuideQuestion with no Prisma relation, so resolve the names in one batched
+    // lookup and attach them — this is what the wizard shows as the question topic.
+    const domainIds = [
+      ...new Set(
+        guide.questions
+          .map((q) => q.domainId)
+          .filter((x): x is string => x !== null),
+      ),
+    ];
+    const subdomainIds = [
+      ...new Set(
+        guide.questions
+          .map((q) => q.subdomainId)
+          .filter((x): x is string => x !== null),
+      ),
+    ];
+    const [domains, subdomains] = await Promise.all([
+      domainIds.length
+        ? this.prisma.domain.findMany({
+            where: { id: { in: domainIds } },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve([]),
+      subdomainIds.length
+        ? this.prisma.subdomain.findMany({
+            where: { id: { in: subdomainIds } },
+            select: { id: true, code: true, name: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const domainById = new Map(domains.map((d) => [d.id, d]));
+    const subById = new Map(subdomains.map((s) => [s.id, s]));
+
+    return {
+      ...guide,
+      questions: guide.questions.map((q) => ({
+        ...q,
+        domain: q.domainId ? (domainById.get(q.domainId) ?? null) : null,
+        subdomain: q.subdomainId ? (subById.get(q.subdomainId) ?? null) : null,
+      })),
+    };
   }
 
   // -------------------------------------------------------------------
@@ -238,9 +282,23 @@ export class GuidesService {
     });
     if (!question) throw new NotFoundException('Question not found in guide');
 
-    // A confirmed topic propagates domain/subdomain and flags the source.
+    // The teacher confirms the classification by subdomain (primary, v9.1) or by a
+    // curriculum topic (legacy). Either flags the source as TEACHER and propagates the
+    // owning domain so the error analysis stays anchored to the taxonomy.
     let topicLink: Prisma.GuideQuestionUpdateInput = {};
-    if (dto.topicId !== undefined) {
+    if (dto.subdomainId !== undefined) {
+      const subdomain = await this.prisma.subdomain.findUnique({
+        where: { id: dto.subdomainId },
+        select: { id: true, domainId: true },
+      });
+      if (!subdomain) throw new NotFoundException('Subdomain not found');
+      topicLink = {
+        subdomainId: subdomain.id,
+        domainId: subdomain.domainId,
+        topicSource: 'TEACHER',
+        topicConfidence: 1.0,
+      };
+    } else if (dto.topicId !== undefined) {
       const topic = await this.prisma.topic.findUnique({
         where: { id: dto.topicId },
         select: { id: true, domainId: true, subdomainId: true },
@@ -737,6 +795,22 @@ export class GuidesService {
       throw new ForbiddenException('You do not teach this guide course');
     }
     return { guide, teacher };
+  }
+
+  async getSourceUrl(
+    teacherUserId: string,
+    guideId: string,
+  ): Promise<{ url: string }> {
+    await this.prisma.ensureConnected();
+    const { guide } = await this.loadOwnedGuide(teacherUserId, guideId);
+    const bucket = this.guidesBucket();
+    const ttl = Number(process.env['GUIDES_PRESIGNED_GET_TTL'] ?? 300);
+    const url = await this.s3.createPresignedGetUrl({
+      bucket,
+      key: guide.sourcePdfKey,
+      ttlSeconds: ttl,
+    });
+    return { url };
   }
 
   private guidesBucket(): string {

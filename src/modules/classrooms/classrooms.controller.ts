@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, Request } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Request,
+} from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { ClassroomsService } from '@modules/classrooms/classrooms.service';
 import { CreateClassroomDto } from '@modules/classrooms/dto/create-classroom.dto';
@@ -42,7 +50,7 @@ export class ClassroomsController {
   @ApiOperation({ summary: 'Generate invitation link for a classroom' })
   @ApiParam({ name: 'id' })
   invite(@Request() req: AuthRequest, @Param('id') id: string) {
-    const practiceBaseUrl = process.env['PUBLIC_PRACTICE_URL'] ?? '';
+    const practiceBaseUrl = process.env['PUBLIC_APP_URL'] ?? '';
     return this.classroomsService.createInvite(
       id,
       req.user.prismaUserId,
@@ -55,5 +63,14 @@ export class ClassroomsController {
   @ApiBody({ type: JoinClassroomDto })
   join(@Request() req: AuthRequest, @Body() dto: JoinClassroomDto) {
     return this.classroomsService.joinWithCode(dto.code, req.user.prismaUserId);
+  }
+
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Soft-delete (archive) a course owned by the teacher',
+  })
+  @ApiParam({ name: 'id' })
+  archive(@Request() req: AuthRequest, @Param('id') id: string) {
+    return this.classroomsService.archiveCourse(id, req.user.prismaUserId);
   }
 }

@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBody,
@@ -38,6 +39,35 @@ export class SkillsController {
   @ApiResponse({ status: 200, description: 'Skills list' })
   findAll() {
     return this.skillsService.findAll();
+  }
+
+  // Declared before `:id` so the literal route is not captured by the param route.
+  @Get('taxonomy')
+  @ApiOperation({ summary: 'Math error taxonomy (domains + subdomains)' })
+  @ApiResponse({ status: 200, description: 'Taxonomy tree' })
+  getTaxonomy() {
+    return this.skillsService.getTaxonomy();
+  }
+
+  // Declared before `:id` for the same reason as `taxonomy`.
+  @Get('error-tags')
+  @ApiOperation({
+    summary: 'Search the ACTIVE error catalog (teacher manual override)',
+  })
+  @ApiResponse({ status: 200, description: 'Matching ACTIVE error tags' })
+  searchErrorTags(
+    @Query('q') q?: string,
+    @Query('domainCode') domainCode?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = limit ? Number(limit) : undefined;
+    return this.skillsService.searchErrorTags({
+      ...(q ? { q } : {}),
+      ...(domainCode ? { domainCode } : {}),
+      ...(parsed !== undefined && Number.isFinite(parsed)
+        ? { limit: parsed }
+        : {}),
+    });
   }
 
   @Get(':id')

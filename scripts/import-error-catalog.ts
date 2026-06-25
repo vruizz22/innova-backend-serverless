@@ -21,10 +21,11 @@ import { z } from 'zod';
 const args = process.argv.slice(2);
 const inputArg = args.find((a) => a.startsWith('--input='));
 const dryRunFlag = args.includes('--dry-run');
+const activateFlag = args.includes('--activate');
 
 if (!inputArg) {
   console.error(
-    'Usage: pnpm tsx scripts/import-error-catalog.ts --input=<path> [--dry-run]',
+    'Usage: pnpm tsx scripts/import-error-catalog.ts --input=<path> [--dry-run] [--activate]',
   );
   process.exit(1);
 }
@@ -189,25 +190,38 @@ async function main(): Promise<void> {
           topicScope: entry.topic_scope ?? null,
         };
 
+        const effectiveStatus = activateFlag ? ErrorStatus.ACTIVE : entry.status;
+        const effectiveData = { ...data, status: effectiveStatus };
+
         const existing = await prisma.errorTag.findUnique({
           where: { code: entry.code },
         });
         if (existing) {
-          stats.duplicates++;
+          if (activateFlag && existing.status === ErrorStatus.DRAFT) {
+            await prisma.errorTag.update({
+              where: { code: entry.code },
+              data: { status: ErrorStatus.ACTIVE },
+            });
+            stats.activeCount++;
+            stats.byDomain[entry.domain_code] =
+              (stats.byDomain[entry.domain_code] ?? 0) + 1;
+          } else {
+            stats.duplicates++;
+          }
           return;
         }
 
-        await prisma.errorTag.create({ data: { code: entry.code, ...data } });
+        await prisma.errorTag.create({ data: { code: entry.code, ...effectiveData } });
         stats.loaded++;
         stats.byDomain[entry.domain_code] =
           (stats.byDomain[entry.domain_code] ?? 0) + 1;
-        if (entry.status === ErrorStatus.DRAFT) stats.draftCount++;
+        if (effectiveStatus === ErrorStatus.DRAFT) stats.draftCount++;
         else stats.activeCount++;
       }),
     );
   }
 
-  console.log('\n✅ Import complete:');
+  console.log(`\n✅ Import complete${activateFlag ? ' (--activate: all set to ACTIVE)' : ''}:`);
   console.log(`   Loaded: ${stats.loaded}`);
   console.log(`   Duplicates skipped: ${stats.duplicates}`);
   console.log(`   Rejected: ${stats.rejected}`);

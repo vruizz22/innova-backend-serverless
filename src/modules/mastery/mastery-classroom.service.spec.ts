@@ -1,9 +1,13 @@
 import { MasteryService } from '@modules/mastery/mastery.service';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
+// Topic now links to the canonical taxonomy (subdomainId/domainId); the heatmap
+// is driven by Domain → Subdomain, not by the Topic row itself.
 const TOPIC = {
   id: 'topic-1',
   unitId: 'unit-1',
+  subdomainId: 'sub-1',
+  domainId: 'dom-1',
   code: 'T-SUB-BORROW',
   name: 'Resta con préstamo',
   description: null,
@@ -12,6 +16,14 @@ const TOPIC = {
   bktPSlip: 0.1,
   bktPGuess: 0.2,
   bktCalibratedAt: null,
+};
+
+const SUBDOMAIN = {
+  id: 'sub-1',
+  domainId: 'dom-1',
+  code: 'SUB-BORROW',
+  name: 'Resta con préstamo',
+  domain: { id: 'dom-1', code: 'NUM-OPS', name: 'Números y operaciones' },
 };
 
 const STUDENT = {
@@ -29,10 +41,17 @@ const STUDENT = {
       exerciseId: 'exercise-1',
       exercise: {
         topicId: 'topic-1',
+        topic: { subdomainId: 'sub-1', domainId: 'dom-1' },
         content: { prompt: '53 - 26 = ?', expectedAnswer: 27 },
       },
       isCorrect: false,
-      errorTag: { id: 'tag-1', code: 'BORROW_OMITTED_TENS' },
+      errorTag: {
+        id: 'tag-1',
+        code: 'BORROW_OMITTED_TENS',
+        name: 'Préstamo omitido en las decenas',
+        domainId: 'dom-1',
+        subdomainCode: 'SUB-BORROW',
+      },
       classifierSource: 'RULE',
       confidence: 0.93,
       createdAt: new Date(),
@@ -42,6 +61,7 @@ const STUDENT = {
       exerciseId: 'exercise-2',
       exercise: {
         topicId: 'topic-1',
+        topic: { subdomainId: 'sub-1', domainId: 'dom-1' },
         content: { prompt: '72 - 48 = ?', expectedAnswer: 24 },
       },
       isCorrect: true,
@@ -58,6 +78,9 @@ function buildMockPrisma(): PrismaService {
     ensureConnected: jest.fn().mockResolvedValue(undefined),
     enrollment: {
       findMany: jest.fn().mockResolvedValue([{ student: STUDENT }]),
+    },
+    subdomain: {
+      findMany: jest.fn().mockResolvedValue([SUBDOMAIN]),
     },
     topic: {
       findMany: jest.fn().mockResolvedValue([TOPIC]),
@@ -89,11 +112,15 @@ describe('MasteryService — classroom/course mastery', () => {
     expect(student.displayName).toBe('Diego Vega');
   });
 
-  it('student view has topics array', async () => {
+  it('topics come from the live taxonomy (subdomain), not the Topic row', async () => {
     const [student] = await service.getCourseMastery('course-1');
     expect(Array.isArray(student.topics)).toBe(true);
-    expect(student.topics.length).toBeGreaterThan(0);
-    expect(student.topics[0].topicCode).toBe('T-SUB-BORROW');
+    expect(student.topics).toHaveLength(1);
+    expect(student.topics[0].topicCode).toBe('SUB-BORROW');
+    expect(student.topics[0].topicName).toBe('Resta con préstamo');
+    // BKT mastery overlay (0.65) wins over the raw accuracy proxy.
+    expect(student.topics[0].pKnown).toBeCloseTo(0.65);
+    expect(student.topics[0].attemptsCount).toBe(2);
   });
 
   it('student view has attempts with errorTagCode', async () => {
@@ -108,6 +135,15 @@ describe('MasteryService — classroom/course mastery', () => {
     expect(student.errorFrequency).toHaveLength(1);
     expect(student.errorFrequency[0].errorTagCode).toBe('BORROW_OMITTED_TENS');
     expect(student.errorFrequency[0].count).toBe(1);
+  });
+
+  it('getCourseHeatmap exposes live domains as units and subdomains as topics', async () => {
+    const hm = await service.getCourseHeatmap('course-1');
+    expect(hm.units).toHaveLength(1);
+    expect(hm.units[0].code).toBe('NUM-OPS');
+    expect(hm.students).toHaveLength(1);
+    expect(hm.students[0].topics[0].topicCode).toBe('SUB-BORROW');
+    expect(hm.students[0].units[0].topicCount).toBe(1);
   });
 
   it('getClassroomMastery is alias for getCourseMastery', async () => {

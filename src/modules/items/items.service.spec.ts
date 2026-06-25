@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ItemsService } from '@modules/items/items.service';
+import { SqsAdapter } from '@adapters/sqs.adapter';
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
 const TOPIC = {
@@ -42,7 +43,10 @@ describe('ItemsService', () => {
 
   beforeEach(() => {
     prisma = buildMockPrisma();
-    service = new ItemsService(prisma);
+    const mockSqs = {
+      publishStandard: jest.fn().mockResolvedValue(undefined),
+    } as unknown as SqsAdapter;
+    service = new ItemsService(prisma, mockSqs);
   });
 
   describe('create', () => {

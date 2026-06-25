@@ -38,22 +38,32 @@ BEGIN
 
   -- ─── Helper functions ───────────────────────────────────────────────
 
+  -- NOTE: users.id is Prisma `String @default(uuid())` → Postgres `text`, NOT native
+  -- `uuid`. So this function returns text (and all *_id FKs it is compared against are
+  -- text too). Declaring `RETURNS uuid` here triggers 42P13 return-type-mismatch.
   EXECUTE $fn$
     CREATE OR REPLACE FUNCTION public.current_prisma_user_id()
-    RETURNS uuid LANGUAGE sql STABLE AS
-    'SELECT id FROM public.users WHERE supabase_uid = auth.uid()';
+    RETURNS text LANGUAGE sql STABLE AS
+    'SELECT id FROM public.users WHERE supabase_uid = auth.uid()::text';
   $fn$;
 
+  -- NOTE: the auth schema exists locally and auth.uid() works, but auth.jwt() does NOT
+  -- exist in every Supabase CLI Postgres version (→ 42883). auth.jwt() is just sugar over
+  -- the `request.jwt.claims` GUC, so read it directly — equivalent and version-independent.
+  -- Nested $body$ dollar-quoting avoids escaping the single quotes in the JSON paths.
   EXECUTE $fn$
     CREATE OR REPLACE FUNCTION public.current_user_role()
-    RETURNS text LANGUAGE sql STABLE AS
-    'SELECT COALESCE(auth.jwt() -> ''app_metadata'' ->> ''role'', ''student'')';
+    RETURNS text LANGUAGE sql STABLE AS $body$
+      SELECT COALESCE(
+        nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'app_metadata' ->> 'role',
+        'student')
+    $body$;
   $fn$;
 
   -- ─── users ─────────────────────────────────────────────────────────
   EXECUTE $fn$
     CREATE POLICY "users: own row" ON public.users
-      FOR ALL USING (supabase_uid = auth.uid())
+      FOR ALL USING (supabase_uid = auth.uid()::text)
   $fn$;
 
   -- ─── teachers ──────────────────────────────────────────────────────
