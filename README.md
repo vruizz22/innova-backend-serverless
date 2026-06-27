@@ -1,749 +1,502 @@
 # innova-backend-serverless
 
-> API core del ecosistema **Innova EdTech** — detección de errores matemáticos procedurales, 3°–6° básico chileno.
+> Core API of the **SuperProfe / Innova** EdTech platform: procedural math-error detection for the Chilean
+> school curriculum. Live in production at **https://api.superprofes.app**.
 >
-> NestJS · TypeScript strict · Prisma · Neon Postgres · MongoDB Atlas · AWS Lambda + SQS · Cognito
+> NestJS 11 · TypeScript strict · Prisma 7 · Supabase (Auth + Postgres) · MongoDB Atlas · AWS Lambda + SQS + S3 · Serverless Framework
 
 ---
 
-## Tabla de contenidos
+## Table of contents
 
-- [innova-backend-serverless](#innova-backend-serverless)
-  - [Tabla de contenidos](#tabla-de-contenidos)
-  - [1. Visión general](#1-visión-general)
-  - [2. Arquitectura](#2-arquitectura)
-  - [3. Autenticación](#3-autenticación)
-    - [Endpoints de auth](#endpoints-de-auth)
-    - [Demo local](#demo-local)
-      - [Password recovery workflow](#password-recovery-workflow)
-  - [4. Stack tecnológico](#4-stack-tecnológico)
-  - [4. Dominio y fundamento teórico](#4-dominio-y-fundamento-teórico)
-  - [5. Estructura del repositorio](#5-estructura-del-repositorio)
-  - [6. Metodología y flujo de trabajo](#6-metodología-y-flujo-de-trabajo)
-    - [6.1 GSD / BMAD](#61-gsd--bmad)
-    - [6.2 AI usage logs](#62-ai-usage-logs)
-    - [6.3 Gitflow](#63-gitflow)
-    - [6.4 Quality gates](#64-quality-gates)
-  - [7. Variables de entorno](#7-variables-de-entorno)
-  - [8. Setup local](#8-setup-local)
-    - [Prerrequisitos](#prerrequisitos)
-    - [Pasos](#pasos)
-    - [Comandos frecuentes](#comandos-frecuentes)
-  - [9. Tests y cobertura](#9-tests-y-cobertura)
-    - [Suites clave](#suites-clave)
-  - [10. Schema de base de datos](#10-schema-de-base-de-datos)
-    - [PostgreSQL (Prisma)](#postgresql-prisma)
-    - [MongoDB (Mongoose)](#mongodb-mongoose)
-  - [11. Diagramas de base de datos (ER)](#11-diagramas-de-base-de-datos-er)
-    - [PostgreSQL (Relacional)](#postgresql-relacional)
-    - [MongoDB (Documental)](#mongodb-documental)
-  - [12. Endpoints](#12-endpoints)
-  - [13. Despliegue (AWS Lambda + Serverless Framework)](#13-despliegue-aws-lambda--serverless-framework)
-    - [Prerrequisitos AWS](#prerrequisitos-aws)
-    - [Deploy completo](#deploy-completo)
-    - [Re-deploy tras cambios](#re-deploy-tras-cambios)
-    - [CI/CD (GitHub Actions)](#cicd-github-actions)
-  - [14. Costos](#14-costos)
-  - [15. Privacidad y cumplimiento NNA](#15-privacidad-y-cumplimiento-nna)
-  - [16. Roadmap](#16-roadmap)
-  - [17. Recursos](#17-recursos)
-  - [18. Licencia](#18-licencia)
+- [1. Overview](#1-overview)
+- [2. Architecture](#2-architecture)
+- [3. Tech stack](#3-tech-stack)
+- [4. Domain and theoretical foundation](#4-domain-and-theoretical-foundation)
+- [5. Repository structure](#5-repository-structure)
+- [6. Data model](#6-data-model)
+- [7. Environment variables](#7-environment-variables)
+- [8. Local setup](#8-local-setup)
+- [9. Testing and coverage](#9-testing-and-coverage)
+- [10. API surface](#10-api-surface)
+- [11. Production deployment](#11-production-deployment)
+- [12. Cost and killswitches](#12-cost-and-killswitches)
+- [13. Privacy and compliance](#13-privacy-and-compliance)
+- [14. Methodology and workflow](#14-methodology-and-workflow)
+- [15. License](#15-license)
 
 ---
 
-## 1. Visión general
+## 1. Overview
 
-**Innova** resuelve el dolor validado en 20 entrevistas con docentes chilenos:
+This repository is the **serverless backend** that orchestrates the whole SuperProfe flow. A teacher uploads
+a worksheet (PDF), the system extracts each question and proposes a step-by-step solution key; the student
+solves it and uploads a photo of their handwritten work; the system transcribes the photo, aligns it with the
+key and classifies the **specific procedural error** (not just right/wrong), then updates a per-student,
+per-topic mastery profile and raises alerts for the teacher.
 
-> *"El profesor se entera tarde de lo que no está entendiendo el aula."*
-
-Este repositorio es el **backend serverless** que orquesta todo el flujo:
-
-| Responsabilidad | Mecanismo |
+| Responsibility | Mechanism |
 |----------------|-----------|
-| Recibir intentos de alumnos (digital o foto escaneada) | `POST /attempts` con ValidationPipe |
-| Clasificar el tipo de error matemático | Rule Engine Strategy+Factory en-proceso (<5ms) |
-| Actualizar probabilidad de dominio del alumno | BKT closed-form Bayesian update |
-| Enrutar errores sin clasificar al LLM | SQS Standard → `innova-ai-engine` |
-| Persistir eventos de telemetría | SQS FIFO → MongoDB Atlas + S3 |
-| Exponer datos al dashboard del profesor | `GET /alerts`, `GET /mastery/:studentId` |
-| Recomendar práctica adaptativa | Fisher information item picker |
+| Authenticate every request | Supabase JWT (JWKS, RS256) guard + role claims |
+| Ingest student attempts (digital or photo) | `POST /attempts` with `ValidationPipe` + typed DTOs |
+| Classify the procedural error | In-process Rule Engine (Strategy + Factory, <5 ms) |
+| Update the student's mastery probability | BKT closed-form Bayesian update |
+| Route unclassified errors to the LLM | SQS Standard → `innova-ai-engine` |
+| Ingest teacher worksheets (PDF) | `POST /guides` presigned upload → SQS `guide-ingest` |
+| Generate exercises / grade submissions | SQS queues consumed by `innova-ai-engine` workers |
+| Persist telemetry events | SQS FIFO → MongoDB Atlas + S3 |
+| Expose data to the teacher dashboard | `GET /alerts`, `GET /mastery/:studentId`, etc. |
+| Recommend adaptive practice | Fisher-information item picker (IRT) |
+
+The heavy AI work (PDF extraction, OCR, LLM classification, BKT/IRT calibration, exercise generation) runs in
+the **`innova-ai-engine`** repo. This backend invokes it asynchronously through SQS and shared S3 buckets.
 
 ---
 
-## 2. Arquitectura
+## 2. Architecture
 
 ```mermaid
 flowchart TD
-  subgraph CLIENTS["Client Apps"]
-    PRACTICE["Practice App (web + mobile)"]
-    TEACHER["Teacher Dashboard (web)"]
-    PARENT["Parent App (web + mobile)"]
+  subgraph CLIENTS["Client apps (innova-clients)"]
+    WEB["Teacher / student / parent web (Next.js)"]
+    MOBILE["Practice & parent apps (Expo)"]
+    LANDING["Landing (Astro)"]
   end
 
-  subgraph API["API Layer"]
-    AGW["API Gateway"]
-    COG["Cognito JWT Guard"]
+  subgraph API["API layer"]
+    AGW["API Gateway (api.superprofes.app)"]
+    GUARD["Supabase JWT guard (JWKS RS256) + RolesGuard"]
   end
 
-  subgraph BACKEND["innova-backend-serverless (Lambda)"]
-    ATTEMPTS["Attempts Controller"]
-    RULE["Rule Engine\nStrategy + Factory\n<5ms"]
-    BKT["BKT Updater\nclosed-form Bayes"]
-    MASTERY["Mastery Controller"]
-    ITEMS["Items Controller"]
-    ALERTS["Alerts Controller"]
-    PRACTICE_SVC["Practice Service\nFisher item picker"]
+  subgraph BACKEND["innova-backend-serverless (Lambda: api)"]
+    ATTEMPTS["Attempts module"]
+    RULE["Rule Engine (Strategy + Factory, <5ms)"]
+    BKT["Mastery service (closed-form BKT)"]
+    GUIDES["Guides + GuideSubmissions"]
+    ASSIGN["Assignment + Practice"]
+    ALERTS["Alerts module"]
+    ADMIN["Admin (catalog)"]
   end
 
-  subgraph BROKERS["Event Brokers"]
-    SQS_FIFO["SQS FIFO\nattempt-stream"]
-    SQS_LLM["SQS Standard\nllm-classify-queue"]
-    SQS_OCR["SQS Standard\nocr-queue"]
+  subgraph BROKERS["AWS SQS"]
+    FIFO["attempt-stream.fifo"]
+    LLM["llm-classify-queue"]
+    OCR["ocr-queue"]
+    REPRO["attempt-reprocess-queue"]
+    GING["guide-ingest-queue"]
+    SOLG["solution-generation-queue"]
+    SUBG["submission-grade-queue"]
   end
 
-  subgraph WORKERS["innova-ai-engine Workers"]
-    TPW["Telemetry Persister"]
-    LCW["LLM Classifier\nbatch 20x"]
-    OCW["OCR Worker\nGemini → Claude"]
-    BKTC["Nightly BKT Calibrator\ncron 07:00 UTC"]
-    IRTC["Nightly IRT Calibrator\ncron 07:15 UTC"]
+  subgraph AI["innova-ai-engine (Python Lambdas)"]
+    TPW["Telemetry persister"]
+    LCW["LLM classifier"]
+    OCW["OCR worker"]
+    GIW["Guide ingest"]
+    SGW["Solution generator"]
+    SUBW["Submission grader"]
+    CAL["Nightly BKT/IRT calibrators"]
   end
 
   subgraph STORAGE["Storage"]
-    PG[("Neon Postgres\nSkills/Items/Mastery/Alerts")]
-    MONGO[("MongoDB Atlas M0\nraw attempt events")]
-    S3U[("S3 uploads\nanonymized JPGs")]
-    S3L[("S3 raw events lake")]
+    PG[("Supabase Postgres (Prisma)")]
+    MONGO[("MongoDB Atlas (telemetry)")]
+    S3G[("S3 guides")]
+    S3S[("S3 submissions")]
   end
 
-  EXT_ANTH["Anthropic Haiku 4.5"]
-  EXT_GEM["Gemini 2.0 Flash"]
+  EXT_ANTH["Anthropic Claude (Haiku/Sonnet)"]
+  EXT_GEM["Google Gemini"]
 
-  PRACTICE --> AGW
-  TEACHER --> AGW
-  PARENT --> AGW
-  AGW --> COG
-  AGW --> ATTEMPTS
-  AGW --> MASTERY
-  AGW --> ITEMS
-  AGW --> ALERTS
+  WEB & MOBILE & LANDING --> AGW --> GUARD
+  GUARD --> ATTEMPTS & GUIDES & ASSIGN & ALERTS & ADMIN
   ATTEMPTS --> RULE
   RULE -->|classified| BKT --> PG
-  RULE -->|UNCLASSIFIED| SQS_LLM
-  ATTEMPTS --> SQS_FIFO
-  PRACTICE -->|presigned PUT| S3U --> SQS_OCR
-  SQS_FIFO --> TPW --> MONGO
-  TPW --> S3L
-  SQS_LLM --> LCW --> EXT_ANTH
-  LCW --> PG
-  SQS_OCR --> OCW --> EXT_GEM
-  OCW --> PG
-  BKTC --> PG
-  IRTC --> PG
+  RULE -->|UNCLASSIFIED| LLM
+  ATTEMPTS --> FIFO
+  GUIDES -->|presigned PUT| S3G --> GING
+  GUIDES --> SOLG
+  GUIDES --> SUBG
+  FIFO --> TPW --> MONGO
+  LLM --> LCW --> EXT_ANTH
+  OCR --> OCW --> EXT_GEM
+  GING --> GIW
+  SOLG --> SGW --> EXT_ANTH
+  SUBG --> SUBW --> EXT_ANTH
+  SUBW --> REPRO
+  LCW & GIW & SGW & SUBW & CAL --> PG
 ```
 
-Secuencia de ingesta de un intento:
+Attempt ingestion sequence:
 
 ```mermaid
 sequenceDiagram
-  participant APP as Practice App
+  participant APP as Client app
   participant AGW as API Gateway
   participant CTL as AttemptsController
   participant RE as RuleEngine
-  participant BKT as MasteryService
-  participant SQS_F as SQS FIFO
-  participant SQS_L as SQS LLM
+  participant M as MasteryService
+  participant SF as SQS FIFO
+  participant SL as SQS LLM
   participant PG as Postgres
 
-  APP->>AGW: POST /attempts {studentId, itemId, rawSteps, finalAnswer}
-  AGW->>CTL: JWT validated → CreateAttemptDto
-  CTL->>RE: classify(rawSteps, item)
+  APP->>AGW: POST /attempts {studentId, exerciseId, steps, finalAnswer}
+  AGW->>CTL: Supabase JWT validated → CreateAttemptDto
+  CTL->>RE: classify(steps, exercise)
   alt CLASSIFIED
-    RE-->>CTL: {errorType, confidence, source:"rule"}
-    CTL->>BKT: applyAttempt(studentId, skillId, isCorrect)
-    BKT->>PG: upsert StudentSkillMastery
-    CTL->>SQS_F: publishFifo(attempt)
-    CTL-->>APP: 201 {attemptId, isCorrect, errorType, pKnown}
+    RE-->>CTL: {errorTag, confidence, source:"rule"}
+    CTL->>M: updateBkt(studentId, topicId, isCorrect)
+    M->>PG: upsert StudentTopicMastery
+    CTL->>SF: publishFifo(attempt telemetry)
+    CTL-->>APP: 201 {attemptId, isCorrect, errorTag, pKnown}
   else UNCLASSIFIED
-    RE-->>CTL: {errorType:"UNCLASSIFIED"}
-    CTL->>SQS_L: publishStandard(attemptId)
-    CTL-->>APP: 201 {attemptId, isCorrect, errorType:"UNCLASSIFIED"}
+    RE-->>CTL: {errorTag:"UNCLASSIFIED"}
+    CTL->>SL: publishStandard(attemptId)
+    CTL-->>APP: 201 {attemptId, isCorrect, errorTag:"UNCLASSIFIED"}
   end
 ```
 
-> Diagramas UML formales (componentes, lollipop/socket interfaces, UML Notes con NFRs) en `docs/drawio/`. Guía de construcción en Draw.io: `docs/drawio/01-how-to-draw-high-level-architecture.md`.
+> Formal UML diagrams (components, lollipop/socket interfaces, NFR notes) live in `../docs/drawio/`.
 
 ---
 
-## 3. Autenticación
+## 3. Tech stack
 
-El backend ahora expone un flujo completo de autenticación local para demo y Postman, además de mantener la validación de JWT de Cognito para tokens externos.
-
-### Endpoints de auth
-
-- `POST /auth/register` - crea un usuario local con email, password y rol.
-- `POST /auth/login` - autentica con email y password y devuelve `accessToken` + `refreshToken`.
-- `POST /auth/refresh` - renueva la sesión usando el refresh token.
-- `POST /auth/forgot-password` - genera un código temporal de recuperación y lo envía por email.
-- `POST /auth/confirm-forgot-password` - confirma el cambio de contraseña con el código recibido en el email.
-- `GET /auth/me` - devuelve el usuario autenticado actual.
-- `POST /auth/logout` - revoca la sesión incrementando la versión de token.
-
-### Demo local
-
-- Usuario teacher semilla: `teacher@innova.demo`
-- Usuarios student semilla: `student1@innova.demo` ... `student5@innova.demo`
-- Password demo compartida: `Innova123!`
-- Tokens locales firmados con HS256 y issuer `innova-local-auth`
-- Los tokens de Cognito siguen siendo compatibles para escenarios reales
-
-#### Password recovery workflow
-
-**Flujo estricto (SIN FALLBACK DEV):**
-
-1. `POST /auth/forgot-password` con email → Backend REQUIERE `RESEND_API_KEY` + `RESEND_FROM_EMAIL`
-2. Backend genera código temporal (15 minutos) y lo almacena hasheado en BD
-3. Backend envía email vía **Resend API** a la dirección proporcionada con link seguro: `https://superprofes.app/auth/reset?token=<urlsafe-base64>`
-4. Si Resend falla → `500 Internal Server Error` (no fallback implícito; email es crítico en producción)
-5. Usuario hace click en el link del email (sin exponer el código)
-6. Cliente extrae el token del URL y lo valida localmente
-7. Usuario introduce nueva contraseña vía `POST /auth/confirm-forgot-password` con {email, code, newPassword}
-8. Backend verifica código, resetea password, incrementa tokenVersion (invalida todas las sesiones activas)
-
-**Seguridad y confiabilidad:**
-
-- ✅ Código NUNCA viaja en HTTP response body (solo en email encriptado via TLS)
-- ✅ Email delivery via **Resend API** (transporte seguro + compliance SPF/DKIM/DMARC)
-- ✅ URL token es base64url (seguro para URLs y logs)
-- ✅ TokenVersion revocation invalida todas las sesiones previas
-- ✅ **NO existe modo dev sin email**: falla al arranque si `RESEND_API_KEY` o `RESEND_FROM_EMAIL` faltan
-
-## 4. Stack tecnológico
-
-| Capa | Tecnología | Versión | Razón |
-|------|-----------|---------|-------|
-| Lenguaje | TypeScript strict | 5.x | Tipado extremo a extremo, `noImplicitAny` |
-| Framework | NestJS | 10+ | DI-first, modular, Guards + Interceptors |
-| ORM | Prisma | 5+ | Migrations versionadas, tipos generados |
-| DB relacional | Neon Postgres (serverless) | 16 | Auto-suspend idle → $0 fuera de clases |
-| DB documental | MongoDB Atlas M0 | 7 | Free tier, raw telemetry sin schema rígido |
-| Mensajería | AWS SQS (FIFO + Standard) | — | Durabilidad, ACK/NACK, desacopla LLM costoso |
-| Auth | AWS Cognito | — | JWT pools, sin servidor propio |
-| Email | Resend API | — | Transporte seguro, SPF/DKIM/DMARC, webhook delivery |
-| Cloud | AWS Lambda + API Gateway | — | Pay-per-request, zero idle cost |
-| Deploy | Serverless Framework | 3+ | Multi-function, container images por handler |
-| Tests | Jest + Supertest | — | Coverage ≥75%, E2E con DB real |
-| Lint/Format | ESLint strict + Prettier | — | `noImplicitAny`, `strictNullChecks` |
-| Package manager | pnpm | 9+ | Workspace protocol, eficiencia disco |
-| Containers | Docker + Docker Compose | — | Parity local/prod |
+| Layer | Technology | Why |
+|-------|-----------|-----|
+| Language | TypeScript (strict) | `noImplicitAny`, `strictNullChecks`, `exactOptionalPropertyTypes` |
+| Framework | NestJS 11 | DI-first, modular, Guards + Interceptors |
+| ORM | Prisma 7 (`@prisma/adapter-pg` + `pg`) | Versioned migrations, generated types, serverless-friendly |
+| Relational DB | Supabase Postgres | Managed Postgres; transaction pooler for serverless |
+| Document DB | MongoDB Atlas | Raw, schema-less attempt telemetry |
+| Messaging | AWS SQS (FIFO + Standard) | Durable, decouples expensive AI work |
+| Object storage | AWS S3 | Worksheet PDFs and submission photos |
+| Auth | Supabase Auth (JWKS, RS256) | JWT validation against Supabase JWKS; role claims |
+| Email | Resend | Password recovery and account notifications |
+| Validation | class-validator / class-transformer + Zod | Typed DTOs, no raw `req.body` |
+| Cloud | AWS Lambda + API Gateway | Pay-per-request, zero idle cost |
+| Deploy | Serverless Framework 3 (esbuild) | One service, multiple functions, custom domain |
+| Logging | Pino (`nestjs-pino`) | Structured JSON logs with trace ids |
+| API docs | Swagger (`@nestjs/swagger`) | OpenAPI UI at `/docs` |
+| Tests | Jest + Supertest | Unit + E2E, coverage gate ≥75% |
+| Package manager | pnpm 9 | Workspace protocol, disk efficiency |
 
 ---
 
-## 4. Dominio y fundamento teórico
+## 4. Domain and theoretical foundation
 
-El pipeline de clasificación sigue 4 capas:
+The classification pipeline has four layers:
 
-**Capa 1 — Rule Engine (síncrono, <5ms)**
-Basado en Brown & VanLehn (1980) "Repair Theory": los errores procedurales en aritmética son sistemáticos y catalogables. Se implementan patrones de error por topic usando **Strategy + Factory**. Coverage esperado: 75–85% de intentos reales.
+**Layer 1 — Rule Engine (synchronous, <5 ms).** Based on Brown & VanLehn (1980) "Repair Theory": procedural
+arithmetic errors are systematic and catalogable. Implemented as one **Strategy class per topic** wired by a
+**Factory** (`topic.code → RuleStrategy`). Deterministic subdomains (integer/fraction/decimal operations,
+ratios/percentages, linear equations, powers/roots) are classified here. Target coverage: ≥75% of real
+attempts classified as non-`UNCLASSIFIED`.
 
-Tipos de error MVP (`subtraction_borrow`):
-
-| Error Type | Descripción |
-|-----------|-------------|
-| `BORROW_OMITTED_TENS` | Omite el préstamo en columna unidades |
-| `BORROW_OMITTED_HUNDREDS` | Omite el préstamo en columna centenas |
-| `SUBTRAHEND_MINUEND_SWAPPED` | Resta al revés (sustrayendo mayor del menor) |
-| `BORROW_FROM_ZERO_INCORRECT` | Maneja mal el préstamo desde columna con 0 |
-| `STOP_BORROW_PROPAGATION` | Detiene propagación del préstamo a media columna |
-| `DIGIT_TRANSPOSITION` | Dígitos en el resultado transpuestos |
-| `COLUMN_MISALIGNMENT` | Alineación vertical incorrecta |
-| `ARITHMETIC_FACT_ERROR` | Error en hechos básicos (off-by-1) |
-| `UNCLASSIFIED` | Ninguna regla matchea → SQS LLM queue |
-
-**Capa 2 — BKT Online Update (síncrono, <1ms)**
-Basado en Corbett & Anderson (1995). Cuatro parámetros por (alumno, skill):
+**Layer 2 — BKT online update (synchronous, <1 ms).** Based on Corbett & Anderson (1995). Closed-form
+Bayesian update of `pKnown` per `(student, topic)`:
 
 ```
-P(Ln | obs=1) = (1−pS)·P(Ln−1) / [(1−pS)·P(Ln−1) + pG·(1−P(Ln−1))]
-P(Ln | obs=0) = pS·P(Ln−1)     / [pS·P(Ln−1) + (1−pG)·(1−P(Ln−1))]
-P(Ln) = P(Ln−1|obs) + (1 − P(Ln−1|obs)) · pT
+P(known | obs=1) = (1-pSlip)·pKnown / [(1-pSlip)·pKnown + pGuess·(1-pKnown)]
+P(known | obs=0) =      pSlip·pKnown / [pSlip·pKnown + (1-pGuess)·(1-pKnown)]
+P(Ln)           = P(known | obs) + (1 - P(known | obs))·pTransit
 ```
 
-Parámetros default (Corbett & Anderson 1995): `pL0=0.30, pT=0.10, pS=0.10, pG=0.20`. Recalibración nightly por `innova-ai-engine` vía grid search.
+Default init `pL0=0.30, pT=0.10, pS=0.10, pG=0.20`. Nightly recalibration runs in `innova-ai-engine` and
+writes the parameters back to Postgres.
 
-**Capa 3 — IRT 2PL (nightly batch)**
-Basado en Lord (1980). Selección óptima del próximo item por Fisher information: maximiza `a²·P(θ)·(1−P(θ))` dado `θ` actual del alumno. Ejecutado en `innova-ai-engine` Lambdas Python.
+**Layer 3 — IRT 2PL (nightly batch).** Based on Lord (1980). The next exercise is chosen by maximizing Fisher
+information `a²·P(θ)·(1−P(θ))` at the student's current `θ`. Calibration runs in `innova-ai-engine`.
 
-**Capa 4 — LLM Async Classification (batch 20×)**
-Claude Haiku 4.5 con prompt caching (`cache_control: ephemeral`) + `tool_choice` forzado para output estructurado. Los errores `UNCLASSIFIED` van a SQS Standard y son procesados en batches de 20. Latencia: <5min hasta dashboard del profe.
+**Layer 4 — LLM async classification.** Attempts marked `UNCLASSIFIED` are pushed to SQS and classified by
+Claude in `innova-ai-engine` against a proprietary taxonomy of 2,600+ procedural errors aligned to the Chilean
+curriculum, with prompt caching and forced structured output.
 
-Literatura completa: `.github/instructions/02-estado-del-arte.md`.
+**Guides pipeline (v9).** Beyond single attempts, the backend drives the teacher-worksheet flow: PDF upload
+(`guide-ingest`) → solution-key generation (`solution-generation`) → student photo grading
+(`submission-grade`) → reprocessing into attempts (`attempt-reprocess`). Each stage is an SQS queue consumed
+by an `innova-ai-engine` worker.
 
 ---
 
-## 5. Estructura del repositorio
+## 5. Repository structure
 
 ```
 innova-backend-serverless/
 ├── src/
-│   ├── app.module.ts
-│   ├── main.ts                     # dev entry
+│   ├── main.ts                     # local dev entry (nest start)
 │   ├── lambda.ts                   # Lambda entry (@vendia/serverless-express)
+│   ├── app.module.ts
 │   ├── modules/
-│   │   ├── attempts/
-│   │   │   ├── attempts.controller.ts   # POST /attempts
-│   │   │   ├── attempts.service.ts      # orchestration: rule → BKT → SQS
-│   │   │   ├── dto/create-attempt.dto.ts
-│   │   │   └── rule-engine/
-│   │   │       ├── engine.service.ts    # orquestador de estrategias
-│   │   │       ├── factory.ts           # topic → Strategy
-│   │   │       └── strategies/
-│   │   │           └── subtraction-borrow.strategy.ts  # 9 error types
-│   │   ├── mastery/
-│   │   │   ├── mastery.controller.ts    # GET /mastery/:studentId
-│   │   │   └── mastery.service.ts       # BKT closed-form update
-│   │   ├── items/
-│   │   │   ├── items.controller.ts
-│   │   │   └── items.service.ts
-│   │   ├── skills/
-│   │   │   ├── skills.controller.ts
-│   │   │   └── skills.service.ts
-│   │   ├── alerts/
-│   │   │   ├── alerts.controller.ts     # GET /alerts, PATCH /alerts/:id/resolve
-│   │   │   └── alerts.service.ts
-│   │   ├── practice/
-│   │   │   ├── practice.controller.ts   # POST /practice/assign
-│   │   │   └── practice.service.ts      # Fisher information item picker
-│   │   └── auth/
-│   │       └── jwt-auth.guard.ts        # Cognito JWKS validation
-│   ├── adapters/
-│   │   ├── anthropic.adapter.ts         # Haiku 4.5, prompt caching, tool_use
-│   │   ├── sqs.adapter.ts               # publishFifo + publishStandard
-│   │   ├── cognito.adapter.ts
-│   │   └── math-ocr/
-│   │       ├── math-ocr.port.ts         # MathOCRPort interface
-│   │       ├── gemini-vision.adapter.ts # primary OCR (free tier)
-│   │       ├── claude-vision.adapter.ts # fallback OCR
-│   │       └── math-ocr.orchestrator.ts # confidence-based escalation ≥0.85
+│   │   ├── auth/                   # Supabase JWT strategy, RolesGuard, @CurrentUser, email (Resend)
+│   │   ├── attempts/               # POST /attempts → rule engine → BKT → SQS
+│   │   │   └── rule-engine/        # Strategy + Factory + per-topic strategies
+│   │   ├── mastery/                # GET /mastery/:studentId — BKT state
+│   │   ├── items/                  # exercise bank + IRT params
+│   │   ├── skills/                 # topic/skill catalog
+│   │   ├── guides/                 # teacher worksheets: upload, ingest, solution review
+│   │   ├── guide-submissions/      # student photo submissions + grading status
+│   │   ├── assignment/             # Assignment generation (manual + recommender)
+│   │   ├── practice/               # Fisher-information practice picker
+│   │   ├── alerts/                 # teacher alerts CRUD
+│   │   ├── classrooms/             # courses, invites, enrollment
+│   │   ├── parent/                 # parent links + child summaries
+│   │   └── admin/                  # error-catalog admin (keyset paginated, @Roles ADMIN)
+│   ├── adapters/                   # SQS, S3, Anthropic/Gemini, math-OCR ports
 │   ├── infrastructure/
-│   │   ├── database/
-│   │   │   └── prisma.service.ts        # singleton serverless-safe, lazy connect
-│   │   └── workers/
-│   │       ├── telemetry-persister.handler.ts  # SQS FIFO → MongoDB + S3
-│   │       ├── llm-classifier.handler.ts       # SQS batch-20 → Anthropic → Postgres
-│   │       ├── ocr-worker.handler.ts            # S3 ObjectCreated → OCR → Attempt
-│   │       └── alert-generator.handler.ts       # cron horaria → TeacherAlert
-│   └── shared/
-│       ├── interceptors/               # ResponseInterceptor, LoggingInterceptor
-│       ├── filters/                    # AllExceptionsFilter
-│       └── middleware/                 # TraceIdMiddleware
+│   │   ├── database/               # PrismaService (serverless-safe singleton)
+│   │   └── workers/                # SQS/S3/cron Lambda handlers
+│   └── shared/                     # interceptors, filters, middleware (trace id), config
 ├── prisma/
-│   ├── schema.prisma                   # schema post-pivot completo
+│   ├── schema.prisma               # full v9 schema (see §6)
 │   ├── migrations/
-│   └── seed.ts                         # 1 School, 5 Students, 30 Items
-├── test/
-│   └── app.e2e-spec.ts
-├── docs/
-│   ├── roadmap.md
-│   ├── milestones.md
-│   ├── requirements.md
-│   ├── architecture.md                 # ADRs 001–010
-│   └── error-taxonomy.md               # catálogo completo por topic
-├── docker-compose.yml                  # postgres 16 + mongodb 7 local
-├── Dockerfile                          # multi-stage Lambda container
-├── serverless.yml                      # Lambda functions + SQS + S3 resources
+│   └── seed.ts                     # demo school, courses, students, exercises
+├── scripts/
+│   ├── import-error-catalog.ts     # import ai-engine taxonomy → ErrorTag
+│   ├── codegen-error-tags.ts       # generate rule-engine error enums from catalog
+│   ├── seed-supabase-auth.ts       # create demo auth users (Admin REST, idempotent)
+│   └── local-reprocess-consumer.ts # local SQS consumer for the attempt-reprocess loop
+├── test/                           # E2E (jest-e2e.json)
+├── docker-compose.yml              # MongoDB 7 + LocalStack (SQS/S3) for local dev
+├── serverless.yml                  # 6 Lambda functions + SQS/S3 resources + custom domain
 ├── .env.example
 └── README.md
 ```
 
 ---
 
-## 6. Metodología y flujo de trabajo
+## 6. Data model
 
-> **Lectura obligatoria antes de abrir un PR.** El proyecto sigue GSD/BMAD con uso declarado de agentes IA.
+**Postgres (Prisma, `prisma/schema.prisma`).** The v9 schema is curriculum-first and multi-subject:
 
-### 6.1 GSD / BMAD
+- Identity & roles: `User` (`supabaseUid`), `Teacher`, `Student`, `Parent`, `ParentLink`.
+- Org & courses: `Organization`, `School`, `Course`, `CourseTeacher`, `Enrollment`, `ClassroomInvite`.
+- Curriculum: `Subject`, `Curriculum`, `OfficialOACode`, `Unit`, `Topic`, `TopicPrerequisite`,
+  `Domain`, `Subdomain`.
+- Exercises & work: `Exercise` (`source: SYSTEM | TEACHER_AUTHORED | LLM_GENERATED`), `Assignment`,
+  `AssignmentTarget`, `AssignmentExercise`, `Attempt`, `AttemptStep`, `AttemptErrorReport`.
+- Mastery & alerts: `StudentTopicMastery` (with `trend7d`), `TeacherAlert`, `ErrorTag` (source of truth for
+  error types, synced with the ai-engine taxonomy).
+- Guides: `Guide`, `GuideQuestion`, `GuideSolution`, `GuideSubmission`.
+- Integrations & cost: `SchoolIntegration`, `ExternalIdMap` (e.g. Google Classroom roster), `CostEvent`
+  (per-operation AI cost accounting).
 
-Artefactos vivos en `docs/`:
+Enums: `ErrorSource`, `ErrorStatus`, `ErrorSeverity`, `GuideStatus`, `GuideQuestionStatus`,
+`SolutionSource`, `SubmissionStatus`.
 
-| Archivo | Propósito |
-|---------|-----------|
-| `docs/roadmap.md` | Milestones M0–M6, fechas, riesgos |
-| `docs/milestones.md` | Sprints, DoR, DoD, ciclos |
-| `docs/requirements.md` | RF/NFR trazables |
-| `docs/architecture.md` | ADRs con tradeoffs (ADR-001 a ADR-010) |
-
-### 6.2 AI usage logs
-
-Por cada sesión relevante con Claude Code u otro agente:
-
-- Crear `docs/ai-logs/YYYY-MM-DD-<tema>.md`
-- Incluir: Prompt exacto · Output resumido · Decisión · Tradeoffs
-- Cada PR referencia el AI log que generó esos cambios
-
-### 6.3 Gitflow
-
-```
-main (protegida) <── feature/<scope>
-                  <── fix/<scope>
-                  <── hotfix/<scope>
-```
-
-- `main` protegida: PR obligatorio, **≥2 reviewers**, CI verde, no force-push.
-- Conventional Commits **en inglés**: `feat(attempts): add rule engine factory`, `fix(bkt): clamp p_known to [0,1]`
-- Squash and merge con título Conventional.
-
-### 6.4 Quality gates
-
-| Gate | Criterio | Bloquea merge |
-|------|---------|---------------|
-| `pnpm build` | exit 0 | ✅ |
-| `pnpm lint` | 0 errores | ✅ |
-| `pnpm test:cov` | coverage ≥ **75%** | ✅ |
-| `pnpm test:e2e` | exit 0 | ✅ |
-| Reviewers | 2 aprobados | ✅ |
+**MongoDB (Mongoose).** Raw, high-volume, schema-less telemetry: attempt events (keystrokes / intermediate
+steps for replay and debugging) and AI job audit records (request, response, cost tracking).
 
 ---
 
-## 7. Variables de entorno
+## 7. Environment variables
 
-Plantilla en `.env.example`. **Nunca commitear `.env`.**
+Template in `.env.example`. **Never commit `.env`.** Config is validated at boot via `@nestjs/config`.
 
-| Variable | Descripción | Requerida |
-|----------|-------------|-----------|
-| `DATABASE_URL` | Neon Postgres connection string | ✅ |
-| `MONGODB_URI` | MongoDB Atlas M0 connection string | ✅ |
-| `COGNITO_USER_POOL_ID` | AWS Cognito User Pool ID | ✅ |
-| `COGNITO_CLIENT_ID` | Cognito App Client ID | ✅ |
-| `COGNITO_REGION` | AWS region del pool | ✅ |
-| `SQS_ATTEMPT_STREAM_URL` | URL SQS FIFO attempt-stream | ✅ |
-| `SQS_LLM_CLASSIFY_URL` | URL SQS Standard llm-classify-queue | ✅ |
-| `SQS_OCR_QUEUE_URL` | URL SQS Standard ocr-queue | ✅ |
-| `AWS_REGION` | Región AWS de los recursos | ✅ |
-| `ANTHROPIC_API_KEY` | API key de Anthropic | ✅ (prod) |
-| `GEMINI_API_KEY` | API key de Google AI Studio | ✅ (prod) |
-| `LOG_LEVEL` | `debug` / `info` / `warn` | ❌ (default: `info`) |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | Supabase Postgres connection string. **Prod (serverless):** transaction pooler `:6543` + `?pgbouncer=true&connection_limit=1`. **Local:** local Postgres or Supabase. | ✅ |
+| `MONGODB_URI` | MongoDB Atlas / local telemetry connection string | ✅ |
+| `SUPABASE_URL` | `https://<project>.supabase.co` | ✅ |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only admin key (bypasses RLS) | ✅ |
+| `SUPABASE_ANON_KEY` | Public anon key | optional |
+| `AWS_REGION` | AWS region of the resources (`us-east-1`) | ✅ |
+| `SQS_ATTEMPT_STREAM_URL` | FIFO telemetry queue | ✅ |
+| `SQS_LLM_CLASSIFY_URL` | LLM classification queue | ✅ |
+| `SQS_OCR_QUEUE_URL` | OCR queue | ✅ |
+| `SQS_ATTEMPT_REPROCESS_URL` | OCR → attempts reprocess loop | ✅ |
+| `SQS_GUIDE_INGEST_URL` | v9 guide ingest queue | prod |
+| `SQS_SOLUTION_GEN_URL` | v9 solution generation queue | prod |
+| `SQS_SUBMISSION_GRADE_URL` | v9 submission grading queue | prod |
+| `S3_GUIDES_BUCKET` / `S3_SUBMISSIONS_BUCKET` | S3 buckets for PDFs / photos | prod |
+| `GUIDES_PRESIGNED_PUT_TTL` / `GUIDES_PRESIGNED_GET_TTL` | Presigned URL TTLs (seconds) | optional |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | Email provider (required for password recovery in prod) | prod |
+| `PUBLIC_APP_URL` / `PUBLIC_API_URL` | Public URLs used in emails and links | prod |
+| `CORS_ORIGINS` | Comma-separated browser origins (e.g. `https://superprofes.app,https://app.superprofes.app`) | prod |
+| `ANTHROPIC_API_KEY` / `GEMINI_API_KEY` | AI providers (only for OCR/LLM features) | prod |
+| `LOG_LEVEL` | `debug` / `info` / `warn` | optional (default `info`) |
 
 ---
 
-## 8. Setup local
+## 8. Local setup
 
-### Prerrequisitos
+### Prerequisites
 
-- Node.js ≥20 (recomendado vía `nvm`)
+- Node.js ≥20 (via `nvm`)
 - pnpm ≥9 (`corepack enable && corepack prepare pnpm@latest --activate`)
 - Docker + Docker Compose v2
-- AWS CLI v2 configurado (o LocalStack para queues locales)
+- A Supabase project (for Auth + Postgres) or a local Postgres instance
 
-### Pasos
+### Steps
 
 ```bash
-# 1. Clonar
-git clone git@github.com:<org>/innova-backend-serverless.git
-cd innova-backend-serverless
-
-# 2. Instalar dependencias
+# 1. Install dependencies
 pnpm install
 
-# 3. Variables de entorno
+# 2. Environment
 cp .env.example .env
-# editar .env con credenciales reales
+# edit .env: Supabase keys, DATABASE_URL, MONGODB_URI, queue URLs (LocalStack), AI keys (optional)
 
-# 4. Levantar Postgres + MongoDB locales
+# 3. Start local infra: MongoDB 7 + LocalStack (SQS/S3)
 docker compose up -d
 
-# 5. Aplicar migraciones y seed
+# 4. Apply migrations + seed (run these yourself; see note below)
 pnpm prisma migrate dev
-pnpm prisma db seed
+pnpm prisma db seed          # demo school, courses, students, exercises
+pnpm seed:full               # seed + import the ai-engine error catalog
 
-# 6. Levantar dev server (hot reload)
-pnpm start:dev
-# → http://localhost:3000
+# 5. Dev server (hot reload)
+pnpm start:dev               # → http://localhost:3000
 
-# 7. Verificar
-curl http://localhost:3000/health
-curl 'http://localhost:3000/skills'
-
-#8. Swagger UI
-go to → http://localhost:3000/docs
+# 6. Verify
+curl http://localhost:3000/health      # 200 OK
+# Swagger UI → http://localhost:3000/docs
 ```
 
-### Comandos frecuentes
+> `docker-compose.yml` provides **MongoDB** and **LocalStack** (SQS/S3). Postgres is expected from Supabase
+> or a local instance — point `DATABASE_URL` accordingly (the `.env.example` shows a local Postgres on
+> `:5433`). LocalStack lets you exercise the SQS/S3 flows without real AWS.
+
+### Demo auth users
+
+`pnpm seed:auth` (guarded by `ALLOW_SEED=1` + `SEED_DEMO_PASSWORD`) creates the demo identities in Supabase
+Auth idempotently via the Admin REST API, so the local DB and Supabase Auth stay in sync.
+
+### Local reprocess consumer
+
+The OCR → attempts loop needs a consumer. In local dev run `pnpm consume:reprocess` to drain the
+`attempt-reprocess` queue against LocalStack.
+
+### Frequent commands
 
 ```bash
 pnpm start:dev          # hot reload
-pnpm build              # compilar TypeScript
-pnpm prisma studio      # GUI Prisma (admin DB)
-pnpm prisma migrate dev --name <name>  # nueva migración
-
-docker compose logs -f  # ver logs Postgres + Mongo
-docker compose down     # apagar (mantiene volúmenes)
-docker compose down -v  # apagar y borrar datos
+pnpm build              # nest build
+pnpm prisma studio      # DB GUI
+pnpm prisma migrate dev --name <name>   # new migration
+docker compose logs -f  # infra logs
+docker compose down -v  # stop and wipe local data
 ```
 
 ---
 
-## 9. Tests y cobertura
+## 9. Testing and coverage
 
 ```bash
-# Unitarios
-pnpm test
-
-# Con cobertura (gate ≥75%)
-pnpm test:cov
-
-# E2E con DB real (requiere DATABASE_URL_TEST en .env)
-pnpm test:e2e
-
-# Watch mode
-pnpm test:watch
+pnpm test               # unit
+pnpm test:cov           # coverage (gate ≥75%)
+pnpm test:e2e           # E2E (requires a test DB; see test/jest-e2e.json)
+pnpm test:watch         # watch mode
 ```
 
-### Suites clave
-
-| Suite | Qué verifica |
-|-------|-------------|
-| `subtraction-borrow.strategy` | 9 tests, 1 por error_type — clasificación correcta con golden set |
-| `mastery.service` | `pKnown ∈ [0,1]`, monotonically increases under correct answers (property test) |
-| `attempts.controller` (E2E) | POST attempt → DB row creado + SQS message enviado |
-| `telemetry.consumer` | Mock SQS event → MongoDB write + S3 put |
-
-Reporte de cobertura: `coverage/lcov-report/index.html`
-
-Ver spec completo: `docs/prompt/01-innova-backend-serverless-testing.md`
+Key suites: rule-engine strategies (one golden case per error type), `MasteryService.updateBkt` (property
+tests: `pKnown ∈ [0,1]`, monotonic under repeated correct answers), `AttemptsController` E2E (POST attempt →
+DB row + SQS message), telemetry/reprocess consumers (mock SQS events). Coverage report at
+`coverage/lcov-report/index.html`.
 
 ---
 
-## 10. Schema de base de datos
+## 10. API surface
 
-### PostgreSQL (Prisma)
+REST, JSON, all routes behind the Supabase JWT guard except `/health`. Browse the full, always-current
+contract in **Swagger UI at `/docs`** (dev). Representative endpoints:
 
-```
-School            — id, name, region
-Classroom         — id, schoolId, name, gradeLevel
-TeacherClassroom  — teacherId, classroomId
-ClassroomInvite   — id, code, classroomId, createdBy, expiresAt?, maxUses?, useCount
-Student           — id, userId, classroomId
-Teacher           — id, userId, classrooms[]
-Skill             — id, topic (unique), gradeLevel, prerequisites[]
-SkillBKTParams    — skillId (PK), pL0, pTransit, pSlip, pGuess, calibratedAt
-Item              — id, skillId, content (Json), irtA, irtB, attemptCount
-Attempt           — id, studentId, itemId, rawSteps (Json), errorType?, classifierSource, confidence?
-StudentSkillMastery — @@id([studentId, skillId]), pKnown, attemptsCount
-TeacherAlert      — id, classroomId, alertType, payload (Json)
-PracticeAssignment — id, studentId, itemIds[], reason, assignedAt
-```
-
-Schema completo: `prisma/schema.prisma`. DBML documentado: `docs/postgresql.dbml`.
-
-### MongoDB (Mongoose)
-
-```
-attempt_events         — raw keystrokes + intermediate steps (replay/debug)
-llm_classification_jobs — request, response, cost tracking
-```
-
-DBML: `docs/mongodb.dbml`.
-
----
-
-## 11. Diagramas de base de datos (ER)
-
-### PostgreSQL (Relacional)
-
-![PostgreSQL ER Diagram](docs/images/postgresql.png)
-
-**Descripción**: Almacena datos transaccionales operacionales (maestros de escuelas, estudiantes, docentes, intentos, mastery, alertas). Documentación completa en `docs/postgresql.dbml`.
-
-### MongoDB (Documental)
-
-![MongoDB Collections Diagram](docs/images/mongodb.png)
-
-**Descripción**: Almacena telemetría de intentos de estudiantes (`attempt_events` con keystroke events), auditoría de trabajos async de LLM (`llm_classification_jobs`), y auditoría de OCR (`ocr_jobs`). Documentación completa en `docs/mongodb.dbml`.
-
----
-
-## 12. Endpoints
-
-| Método | Path | Descripción | Auth |
+| Method | Path | Description | Auth |
 |--------|------|-------------|------|
-| GET | `/health` | Healthcheck | — |
-| POST | `/attempts` | Ingestar intento (digital o post-OCR) | JWT |
-| GET | `/mastery/:studentId` | Estado BKT actual por skill | JWT |
-| GET | `/skills` | Catálogo de skills | JWT |
-| GET | `/items` | Item bank con parámetros IRT | JWT |
-| GET | `/alerts` | Alertas sin resolver del classroom | JWT |
-| PATCH | `/alerts/:id/resolve` | Marcar alerta resuelta | JWT (teacher) |
-| POST | `/practice/assign` | Generar PracticeAssignment | JWT (teacher) |
-| POST | `/uploads/presigned-url` | Generar presigned URL para foto de cuaderno | JWT |
-| GET | `/classrooms/mine` | Classrooms del teacher autenticado | JWT (teacher) |
-| GET | `/classrooms/student/mine` | Classroom del student autenticado | JWT (student) |
-| POST | `/classrooms` | Teacher crea un classroom | JWT (teacher) |
-| GET | `/classrooms/:id` | Detalle de classroom | JWT |
-| POST | `/classrooms/:id/invite` | Generar código de invitación | JWT (teacher) |
-| POST | `/classrooms/join` | Student se une con código | JWT (student) |
+| GET | `/health` | Healthcheck | public |
+| POST | `/attempts` | Ingest an attempt (digital or post-OCR) | JWT |
+| GET | `/attempts/:id/status` | Poll grading/classification status | JWT |
+| GET | `/mastery/:studentId` | Current BKT state per topic | JWT |
+| GET | `/skills` · `/items` | Topic catalog / exercise bank | JWT |
+| POST | `/guides` | Create a guide + presigned PDF upload | JWT (teacher) |
+| GET | `/guides/:id` | Guide + extracted questions + solution key | JWT (teacher) |
+| POST | `/items/generate` | Enqueue LLM exercise generation | JWT (teacher) |
+| POST | `/practice/assign` | Create an assignment | JWT (teacher) |
+| GET | `/alerts` · PATCH `/alerts/:id/resolve` | Teacher alerts | JWT (teacher) |
+| GET/POST | `/classrooms/*` | Courses, invites, join | JWT |
+| GET | `/admin/error-tags` · PATCH status | Error-catalog admin | JWT (ADMIN) |
 
-Todos los endpoints requieren `Authorization: Bearer <cognito-jwt>` excepto `/health`.
-Swagger disponible en `http://localhost:3000/api` en modo dev.
+**Lambda functions (`serverless.yml`):** `api` (HTTP), `telemetryWorker` (SQS FIFO → Mongo/S3),
+`llmClassifierWorker`, `ocrWorker`, `alertGenerator` (cron), `attemptReprocessWorker`.
 
 ---
 
-## 13. Despliegue (AWS Lambda + Serverless Framework)
+## 11. Production deployment
 
-### Prerrequisitos AWS
+Production runs on **AWS account `751871643325`, region `us-east-1`**, fronted by the custom domain
+`api.superprofes.app`. The authoritative step-by-step runbook is `../docs/DEPLOY_RUNBOOK.md`.
 
-1. Cuenta AWS con Free Tier activo.
-2. Cognito User Pool + App Client configurados (pools: `Student`, `Teacher`, `Parent`).
-3. SQS queues creadas vía `serverless deploy` (FIFO attempt-stream + 2 Standard).
-4. Neon Postgres: proyecto creado en [neon.tech](https://neon.tech), free tier.
-5. MongoDB Atlas M0: cluster en [cloud.mongodb.com](https://cloud.mongodb.com), free tier.
+### Mechanism
 
-```bash
-# Crear User Pool con MFA para teachers
-aws cognito-idp create-user-pool --pool-name innova-teachers \
-  --mfa-configuration ON \
-  --auto-verified-attributes email
+- **Serverless Framework** (`serverless.yml`) deploys one service with six functions plus the SQS queues, S3
+  buckets and custom domain mapping (`provider.runtime: nodejs20.x`, esbuild bundling). This stack **owns**
+  the SQS queues and S3 buckets that `innova-ai-engine` later consumes, which is why the deploy order is
+  **backend → ai-engine → clients**.
+- **CI/CD**: `.github/workflows/ci.yml` runs type-check + lint + tests on every PR (coverage gate).
+  `.github/workflows/deploy.yml` runs on merge to `main` and deploys to AWS. `.github/workflows/seed-prod.yml`
+  is a manual, dispatch-only workflow to seed the demo identities in prod.
 
-# Obtener JWKS URI (para COGNITO_USER_POOL_ID)
-# https://cognito-idp.<REGION>.amazonaws.com/<POOL_ID>/.well-known/jwks.json
-```
-
-### Deploy completo
+### Deploy
 
 ```bash
-# Instalar Serverless Framework CLI
-pnpm add -g serverless
-
-# Configurar credenciales AWS
-aws configure
-
-# Variables de entorno para deploy
-export DATABASE_URL="postgresql://..."
-export MONGODB_URI="mongodb+srv://..."
-export ANTHROPIC_API_KEY="sk-ant-..."
-export GEMINI_API_KEY="AIza..."
-
-# Deploy (crea SQS, S3, Lambda functions)
+# Local/manual deploy (CI does this automatically on merge to main)
 pnpm build
-serverless deploy --stage prod
+pnpm prisma migrate deploy
+npx serverless deploy --stage prod
 ```
 
-### Re-deploy tras cambios
+### Production configuration notes
 
-```bash
-pnpm build
-serverless deploy function -f api --stage prod
-```
+- **`DATABASE_URL` pooler:** the backend (Prisma serverless) must use the Supabase **transaction pooler
+  (`:6543`)** with `?pgbouncer=true&connection_limit=1`. The `innova-ai-engine` must use the **session pooler
+  (`:5432`)** instead, because `asyncpg` breaks with the transaction pooler's prepared statements.
+- **`CORS_ORIGINS`:** browser origins only (`https://superprofes.app,https://app.superprofes.app`). Do not
+  add `ai.superprofes.app` (it is server-side Lambda, it does not make CORS requests).
+- **Secrets** live in GitHub Actions repository secrets: `SUPABASE_URL/ANON_KEY/SERVICE_ROLE_KEY`,
+  `DATABASE_URL`, `MONGODB_URI`, `AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY/REGION`, `ANTHROPIC_API_KEY`,
+  `GEMINI_API_KEY`, `RESEND_API_KEY/FROM_EMAIL`, `PUBLIC_API_URL/APP_URL`, `SEED_DEMO_PASSWORD`.
+- **Verify:** `curl -s https://api.superprofes.app/health` → `200 OK`.
 
-### CI/CD (GitHub Actions)
+### Release flow
 
-`.github/workflows/ci.yml` — se ejecuta en cada PR:
-
-1. `pnpm lint` → `pnpm tsc --noEmit` → `pnpm test:cov`
-2. Bloquea merge si coverage < 75%
-
-`.github/workflows/deploy.yml` — se ejecuta en merge a `main`:
-
-1. `pnpm build`
-2. `pnpm prisma migrate deploy`
-3. `serverless deploy --stage prod`
-
-Secrets requeridos en GitHub:
-
-| Secret | Descripción |
-|--------|-------------|
-| `DATABASE_URL` | Neon Postgres prod connection string |
-| `MONGODB_URI` | Atlas M0 connection string |
-| `COGNITO_USER_POOL_ID` | Pool ID de AWS Cognito |
-| `COGNITO_CLIENT_ID` | App Client ID |
-| `COGNITO_REGION` | Región del pool (e.g. `us-east-1`) |
-| `AWS_ACCESS_KEY_ID` | IAM key para deploy |
-| `AWS_SECRET_ACCESS_KEY` | IAM secret para deploy |
-| `ANTHROPIC_API_KEY` | Claude Haiku 4.5 API key |
-| `GEMINI_API_KEY` | Google AI Studio API key |
-
-**Rollback:** `serverless rollback --timestamp <timestamp>` o re-deploy de la versión anterior.
+After merging the release PR (`develop` → `main`) and a successful deploy, back-merge `main` → `develop` and
+create the GitHub release/tag (see `../docs/DEPLOY_RUNBOOK.md` §5–6).
 
 ---
 
-## 14. Costos
+## 12. Cost and killswitches
 
-Proyección: **1000 alumnos activos, 22 días lectivos, ~30 intentos/alumno/día = 660K intentos/mes**
-
-| Componente | Costo/mes |
-|-----------|----------|
-| API Gateway (660K req) | $2.31 |
-| Lambda NestJS handlers | $4.50 |
-| SQS FIFO + Standard | $0.41 |
-| Neon Postgres (free tier) | $0.00 |
-| MongoDB Atlas M0 | $0.00 |
-| S3 + CloudFront | $3.50 |
-| Anthropic Haiku 4.5 (LLM classifier, con caching) | ~$28.00 |
-| Gemini 2.0 Flash Vision (OCR) | ~$99.00 |
-| **Total backend** | **~$45/mes** |
-
-Costo por alumno/mes: **~$0.05**. Costo anual por colegio (300 alumnos): **~$162**.
-
-Desglose completo: `.github/instructions/09-costos-y-escalabilidad.md`.
-
-**Killswitches activos:**
-
-- CloudWatch billing alarm a **$80 LLM** → SSM `LLM_PAUSED=true` → Lambda LLM consumer verifica antes de llamar Anthropic → mensajes van a DLQ.
-- CloudWatch billing alarm a **$50 OCR** → SSM `OCR_PAUSED=true` → fallback a "carga digital obligatoria".
-
-### Alternativas de envío de correo (capas gratuitas permanentes, 2026)
-
-Para notificaciones (recuperación de contraseña, notificaciones de cuenta) las opciones con capas gratuitas activas en 2026 son:
-
-- Resend: 3,000 correos/mes (≈100/día). Muy simple de integrar y buen SDK.
-- Brevo (ex-Sendinblue): 300 correos/día. Buena entrega para volúmenes diarios moderados.
-- Mailjet: 6,000 correos/mes (≈200/día).
-- Amazon SES: opción de bajo coste si ya estás en AWS (comprueba límites de la cuenta y periodo gratuito aplicable).
-
-Recomendación: configurar `RESEND_API_KEY` y `RESEND_FROM_EMAIL` en Secrets para producción. El coste de emails es despreciable frente a LLM/OCR; usar Resend como único proveedor evita ramas de configuración innecesarias.
+The architecture keeps marginal cost near zero when idle (pay-per-request Lambda, pooled serverless
+Postgres). The dominant variable cost is AI inference (OCR + LLM), tracked per operation in the `CostEvent`
+table. Billing alarms in CloudWatch flip SSM flags (`LLM_PAUSED`, `OCR_PAUSED`) that the workers check before
+calling a provider; when paused, messages go to the DLQ or fall back to digital-only input. Email cost is
+negligible; Resend is the single provider to avoid configuration branches.
 
 ---
 
-## 15. Privacidad y cumplimiento NNA
+## 13. Privacy and compliance
 
-- **COPPA + Ley 21.180 (Chile):** cero PII llega al LLM o al OCR provider. Solo `student_uuid` en mensajes SQS.
-- Imágenes de worksheets: filename = UUID aleatorio, purgadas a 30 días vía S3 lifecycle policy.
-- Cognito JWT requerido en todos los endpoints — sin acceso anónimo.
-- `classifierSource` en cada `Attempt` permite auditoría completa: `rule` / `llm` / `human`.
-- Consentimiento parental registrado en `ParentLink` antes de habilitar uploads de fotos.
-- Datos de menores no se comparten con servicios analíticos de terceros.
-
----
-
-## 16. Roadmap
-
-| Milestone | Fecha | Entregable |
-|-----------|-------|-----------|
-| M0 — Spec & Governance | 29 abr | Plan pivot, ADRs, docs BMAD, error-taxonomy |
-| M1 — Backend skeleton | 30 abr — 2 may | modules + Prisma migrations + Prisma real + CI |
-| **M2 — MVP demo** | **3 may (Entrega 2)** | E2E demo 1 topic subtraction_borrow, 5 alumnos |
-| M3 — AI engine | 4–30 may | BKT/IRT nightly + LLM classifier + OCR worker |
-| **M4 — Entrega 3** | **7 jun** | 3 topics, coverage ≥75%, pilot real con 5+ alumnos |
-| M5 — Polish + Tauri | 8–18 jun | parent app, Tauri desktop, onboarding flow |
-| **M6 — Entrega 4** | **19 jun** | Producto en producción para incubadora |
+- No PII reaches the LLM or OCR providers: SQS messages carry only `student_uuid`.
+- Submission photos use random UUID filenames and are purged by an S3 lifecycle policy.
+- Every request requires a Supabase JWT; there is no anonymous access.
+- Each `Attempt` records its `classifierSource` (`rule` / `llm` / `human`) for full auditability.
+- Parental consent is recorded in `ParentLink` before photo uploads are enabled.
+- Minors' data is not shared with third-party analytics services. Aligned with COPPA and Chile's Law 21.180.
 
 ---
 
-## 17. Recursos
+## 14. Methodology and workflow
 
-- Especificaciones del dominio: `.github/instructions/`
-- Fundamento teórico: `.github/instructions/02-estado-del-arte.md`
-- Modelo cognitivo BKT/IRT: `.github/instructions/04-modelo-cognitivo.md`
-- Pipeline BKT calibración: `.github/instructions/05-pipeline-bkt-irt.md`
-- Clasificador LLM: `.github/instructions/06-llm-error-classifier.md`
-- OCR Vision pipeline: `.github/instructions/06b-ocr-vision-pipeline.md`
-- Costos y escalabilidad: `.github/instructions/09-costos-y-escalabilidad.md`
-- Taxonomía de errores: `docs/error-taxonomy.md`
-- ADRs: `docs/architecture.md`
+The project follows GSD/BMAD with declared AI-agent usage. Living artifacts are in `../docs/`
+(`roadmap.md`, `milestones.md`, `requirements.md`, `architecture.md`) and per-session AI logs in
+`../docs/ai-logs/`.
+
+Gitflow: `develop` is the integration branch; `main` is protected (PR + review + green CI, no force-push).
+Commits follow **Conventional Commits in English** (`feat(attempts): ...`, `fix(bkt): ...`). Quality gates
+that block merge: `pnpm build`, `pnpm lint`, `pnpm test:cov` (≥75%), `pnpm test:e2e`.
 
 ---
 
-## 18. Licencia
+## 15. License
 
-Innova - Team 23. Internal GPL-3.0 License.
+Innova — Team 23. Internal GPL-3.0 license.
